@@ -46,7 +46,7 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
       // Initialize mapping with empty values
       const initialMapping = csvHeaders.map(header => ({
         csvColumn: header,
-        contentstackField: '',
+        contentstackField: '__skip__',
         fieldType: 'text' as const,
         isRequired: false
       }));
@@ -94,7 +94,7 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
   };
 
   const handleSubmit = () => {
-    const validMapping = mapping.filter(m => m.contentstackField !== '');
+    const validMapping = mapping.filter(m => m.contentstackField !== '__skip__');
     
     if (validMapping.length === 0) {
       toast({
@@ -150,14 +150,14 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
                   <div>
                     <Label className="text-sm font-medium">Contentstack Field</Label>
                     <Select
-                      value={mapping[index]?.contentstackField || ''}
+                      value={mapping[index]?.contentstackField || '__skip__'}
                       onValueChange={(value) => updateMapping(index, 'contentstackField', value)}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select field" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">-- Skip this column --</SelectItem>
+                        <SelectItem value="__skip__">-- Skip this column --</SelectItem>
                         {contentstackFields.map(field => (
                           <SelectItem key={field.uid} value={field.uid}>
                             {field.display_name} ({field.data_type})
