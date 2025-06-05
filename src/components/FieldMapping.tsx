@@ -21,8 +21,27 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchContentstackFields();
+    if (config.schema) {
+      // Use uploaded schema
+      setContentstackFields(config.schema);
+      initializeMapping(config.schema);
+      setIsLoading(false);
+    } else {
+      // Fallback to API fetch
+      fetchContentstackFields();
+    }
   }, []);
+
+  const initializeMapping = (fields: ContentstackField[]) => {
+    const initialMapping = csvHeaders.map(header => ({
+      csvColumn: header,
+      contentstackField: '__skip__',
+      fieldType: 'text' as const,
+      isRequired: false
+    }));
+    
+    setMapping(initialMapping);
+  };
 
   const fetchContentstackFields = async () => {
     try {
@@ -42,21 +61,12 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
       const fields = data.content_type.schema || [];
       
       setContentstackFields(fields);
-      
-      // Initialize mapping with empty values
-      const initialMapping = csvHeaders.map(header => ({
-        csvColumn: header,
-        contentstackField: '__skip__',
-        fieldType: 'text' as const,
-        isRequired: false
-      }));
-      
-      setMapping(initialMapping);
+      initializeMapping(fields);
       setIsLoading(false);
     } catch (error) {
       toast({
         title: "Error Fetching Content Type",
-        description: "Could not fetch content type schema. Please check your configuration.",
+        description: "Could not fetch content type schema. Please check your configuration or upload a schema file.",
         variant: "destructive"
       });
       setIsLoading(false);
@@ -134,6 +144,11 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
         </CardTitle>
         <CardDescription>
           Map your CSV columns to Contentstack fields
+          {config.schema && (
+            <span className="block text-green-600 text-sm mt-1">
+              ✓ Using uploaded schema with {config.schema.length} fields
+            </span>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent>

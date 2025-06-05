@@ -5,8 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
-import { ContentstackConfig } from '@/types/contentstack';
+import { ContentstackConfig, ContentstackField } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
+import { Upload } from 'lucide-react';
 
 interface ConfigurationFormProps {
   onSubmit: (config: ContentstackConfig) => void;
@@ -21,6 +22,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
     shouldPublish: false,
     environment: 'development'
   });
+  const [schemaFile, setSchemaFile] = useState<File | null>(null);
   const { toast } = useToast();
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -44,6 +46,54 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
 
   const handleInputChange = (field: keyof ContentstackConfig, value: string | boolean) => {
     setConfig(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSchemaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/json') {
+      toast({
+        title: "Invalid File Type",
+        description: "Please upload a JSON file",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setSchemaFile(file);
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const jsonData = JSON.parse(event.target?.result as string);
+        
+        // Extract schema from different possible structures
+        let schema: ContentstackField[] = [];
+        if (jsonData.content_type?.schema) {
+          schema = jsonData.content_type.schema;
+        } else if (jsonData.schema) {
+          schema = jsonData.schema;
+        } else if (Array.isArray(jsonData)) {
+          schema = jsonData;
+        }
+
+        setConfig(prev => ({ ...prev, schema }));
+        
+        toast({
+          title: "Schema Uploaded",
+          description: `Successfully loaded ${schema.length} fields from schema`
+        });
+      } catch (error) {
+        toast({
+          title: "Invalid JSON",
+          description: "Could not parse the uploaded JSON file",
+          variant: "destructive"
+        });
+      }
+    };
+    
+    reader.readAsText(file);
   };
 
   return (
@@ -128,6 +178,28 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
               />
               <Label htmlFor="shouldPublish">Auto-publish entries</Label>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="schema">Upload Content Type Schema (Optional)</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="schema"
+                type="file"
+                accept=".json"
+                onChange={handleSchemaUpload}
+                className="cursor-pointer"
+              />
+              <Upload className="w-4 h-4 text-gray-500" />
+            </div>
+            <p className="text-sm text-gray-500">
+              Upload your content type JSON schema to automatically populate field mappings
+            </p>
+            {config.schema && (
+              <p className="text-sm text-green-600">
+                ✓ Schema loaded with {config.schema.length} fields
+              </p>
+            )}
           </div>
           
           <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">

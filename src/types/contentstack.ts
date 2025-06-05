@@ -1,4 +1,3 @@
-
 export interface ContentstackConfig {
   apiKey: string;
   managementToken: string;
@@ -6,6 +5,7 @@ export interface ContentstackConfig {
   contentType: string;
   shouldPublish: boolean;
   environment?: string;
+  schema?: ContentstackField[];
 }
 
 export interface CsvData {
