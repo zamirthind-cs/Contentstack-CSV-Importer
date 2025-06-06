@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +22,9 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
   const { toast } = useToast();
 
   useEffect(() => {
+    console.log('FieldMapping useEffect triggered with csvHeaders:', csvHeaders);
+    console.log('Config:', config);
+    
     if (config.schema) {
       // Use uploaded schema and flatten it
       initializeFromSchema();
@@ -43,6 +45,8 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
           managementToken: config.managementToken,
           host: config.host
         });
+        
+        console.log('Flattened fields:', flattened);
         
         // Check for any global fields that couldn't be fully processed
         const globalFieldsWithIssues = flattened.filter(f => 
@@ -73,6 +77,7 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
       // Fallback to sync version if async fails
       if (config.schema) {
         const flattened = flattenContentstackFieldsSync(config.schema);
+        console.log('Sync flattened fields:', flattened);
         setFlattenedFields(flattened);
         setFetchWarnings(warnings);
         initializeMapping(flattened);
@@ -83,13 +88,29 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
   };
 
   const initializeMapping = (fields: FlattenedField[]) => {
+    console.log('Initializing mapping with fields:', fields);
+    console.log('CSV headers to match:', csvHeaders);
+    
     const initialMapping = csvHeaders.map(header => {
+      console.log(`\nTrying to match CSV header: "${header}"`);
+      
       // Try to find a matching field by name, display name, or path
-      const matchingField = fields.find(field => 
-        field.uid.toLowerCase() === header.toLowerCase() ||
-        field.display_name.toLowerCase() === header.toLowerCase() ||
-        field.fieldPath.toLowerCase() === header.toLowerCase()
-      );
+      const matchingField = fields.find(field => {
+        const uidMatch = field.uid.toLowerCase() === header.toLowerCase();
+        const displayNameMatch = field.display_name.toLowerCase() === header.toLowerCase();
+        const pathMatch = field.fieldPath.toLowerCase() === header.toLowerCase();
+        
+        console.log(`  Checking field: ${field.uid} (${field.display_name}) - path: ${field.fieldPath}`);
+        console.log(`    UID match: ${uidMatch}, Display name match: ${displayNameMatch}, Path match: ${pathMatch}`);
+        
+        return uidMatch || displayNameMatch || pathMatch;
+      });
+      
+      if (matchingField) {
+        console.log(`  ✓ Found match: ${matchingField.fieldPath} (${matchingField.display_name})`);
+      } else {
+        console.log(`  ✗ No match found for "${header}"`);
+      }
       
       return {
         csvColumn: header,
@@ -102,6 +123,7 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
       };
     });
     
+    console.log('Final mapping result:', initialMapping);
     setMapping(initialMapping);
   };
 
