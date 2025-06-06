@@ -209,20 +209,39 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   const hasEmptyFieldsToUpdate = (existingEntry: any, newData: any): { hasUpdates: boolean; fieldsToUpdate: string[] } => {
     const fieldsToUpdate: string[] = [];
     
+    console.log('🔍 Checking for empty fields to update...');
+    console.log('Existing entry data:', JSON.stringify(existingEntry, null, 2));
+    console.log('New data to compare:', JSON.stringify(newData, null, 2));
+    
     for (const [key, value] of Object.entries(newData)) {
       if (value !== null && value !== undefined && value !== '') {
         const existingValue = existingEntry[key];
+        console.log(`📋 Field "${key}":`, {
+          newValue: value,
+          existingValue: existingValue,
+          existingValueType: typeof existingValue
+        });
+        
         // Check if the existing field is empty/null/undefined or if it's an empty array (for references)
         const isEmpty = !existingValue || 
           (Array.isArray(existingValue) && existingValue.length === 0) ||
-          (typeof existingValue === 'string' && existingValue.trim() === '');
+          (typeof existingValue === 'string' && existingValue.trim() === '') ||
+          (typeof existingValue === 'object' && Object.keys(existingValue).length === 0);
+        
+        console.log(`  ✅ Field "${key}" is empty: ${isEmpty}`);
         
         if (isEmpty) {
           fieldsToUpdate.push(key);
+          console.log(`  🎯 Will update field "${key}" with value:`, value);
+        } else {
+          console.log(`  ⏭️ Skipping field "${key}" - already has value:`, existingValue);
         }
+      } else {
+        console.log(`  ⚠️ Skipping field "${key}" - no new value provided (${value})`);
       }
     }
     
+    console.log(`📊 Summary: ${fieldsToUpdate.length} fields to update:`, fieldsToUpdate);
     return { hasUpdates: fieldsToUpdate.length > 0, fieldsToUpdate };
   };
 
@@ -260,34 +279,55 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         };
       }
 
+      console.log(`🚀 Processing row ${rowIndex + 1}:`, rowData);
+      console.log('📋 Field mapping configuration:', fieldMapping);
+
       // Initialize entry data with title
       let entryData: any = {
         title: rowData[fieldMapping.find(m => m.contentstackField === 'title')?.csvColumn || ''] || `Entry ${rowIndex + 1}`
       };
 
+      console.log('🏗️ Starting entry data construction...');
+
       // Process each field mapping, including nested field handling
       for (const mapping of fieldMapping) {
         const csvValue = rowData[mapping.csvColumn];
+        console.log(`🔄 Processing mapping:`, {
+          csvColumn: mapping.csvColumn,
+          contentstackField: mapping.contentstackField,
+          csvValue: csvValue,
+          fieldType: mapping.fieldType
+        });
+        
         if (csvValue !== undefined && csvValue !== '') {
           const fieldPath = mapping.contentstackField;
           
           if (fieldPath.includes('.')) {
             // Handle nested fields (blocks or global fields)
+            console.log(`🌳 Processing nested field: ${fieldPath}`);
             const transformedValue = await transformNestedValue(csvValue, fieldPath, mapping, transformValue);
+            console.log(`🔄 Transformed nested value:`, transformedValue);
             if (transformedValue !== null) {
               entryData = mergeNestedData(entryData, transformedValue, fieldPath);
+              console.log(`🏗️ Entry data after merging nested field "${fieldPath}":`, JSON.stringify(entryData, null, 2));
             }
           } else {
             // Handle simple fields
+            console.log(`📝 Processing simple field: ${fieldPath}`);
             const transformedValue = await transformValue(csvValue, mapping);
+            console.log(`🔄 Transformed simple value for "${fieldPath}":`, transformedValue);
             if (transformedValue !== null) {
               entryData[mapping.contentstackField] = transformedValue;
+              console.log(`✅ Set field "${mapping.contentstackField}" to:`, transformedValue);
             }
           }
+        } else {
+          console.log(`⏭️ Skipping field "${mapping.contentstackField}" - no CSV value`);
         }
       }
 
-      secureLogger.info(`Processing entry: ${entryData.title}`, { entryTitle: entryData.title }, rowIndex);
+      console.log('🏁 Final entry data structure:', JSON.stringify(entryData, null, 2));
+      secureLogger.info(`Processing entry: ${entryData.title}`, { entryTitle: entryData.title, entryData: entryData }, rowIndex);
 
       // Validate reference fields and provide detailed feedback
       const { hasIssues, issues } = await validateReferenceFields(entryData, rowIndex);
@@ -318,7 +358,9 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
           updateData[field] = entryData[field];
         });
 
-        secureLogger.info(`Updating existing entry: ${existsResult.uid} in ${orgName}`, { fieldsToUpdate }, rowIndex);
+        console.log('📤 Sending update data to Contentstack:', JSON.stringify(updateData, null, 2));
+        secureLogger.info(`Updating existing entry: ${existsResult.uid} in ${orgName}`, { fieldsToUpdate, updateData }, rowIndex);
+        
         const updateResponse = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries/${existsResult.uid}`, {
           method: 'PUT',
           headers: {
@@ -332,13 +374,14 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         if (!updateResponse.ok) {
           const errorData = await updateResponse.json();
           const errorMsg = errorData.error_message || 'Failed to update entry';
-          secureLogger.error(`Update failed: ${errorMsg}`, { responseStatus: updateResponse.status }, rowIndex);
+          secureLogger.error(`Update failed: ${errorMsg}`, { responseStatus: updateResponse.status, errorData }, rowIndex);
           throw new Error(errorMsg);
         }
 
         const updatedEntryResponse = await updateResponse.json();
         const updatedEntry = updatedEntryResponse.entry;
 
+        // ... keep existing code (publishing logic)
         let published = false;
         if (config.shouldPublish && config.environment) {
           try {
