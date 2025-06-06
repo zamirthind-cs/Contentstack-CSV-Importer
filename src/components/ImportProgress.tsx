@@ -3,9 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ContentstackConfig, CsvData, FieldMapping, ImportResult } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
 import { StopCircle } from 'lucide-react';
+import { secureLogger } from '@/utils/secureLogger';
+import LogsViewer from '@/components/LogsViewer';
 
 interface ImportProgressProps {
   csvData: CsvData;
@@ -41,7 +44,6 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       case 'date':
         return new Date(value).toISOString();
       case 'reference':
-        // For reference fields, assume the CSV contains UIDs
         return [{ uid: value }];
       default:
         return value;
@@ -50,11 +52,15 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
   const checkEntryExists = async (entryData: any): Promise<string | null> => {
     try {
-      // Check if entry exists by title or unique identifier
       const titleField = fieldMapping.find(m => m.contentstackField === 'title');
       const titleValue = titleField ? entryData[titleField.contentstackField] : null;
       
-      if (!titleValue) return null;
+      if (!titleValue) {
+        secureLogger.warning('No title field found for entry existence check');
+        return null;
+      }
+
+      secureLogger.info(`Checking if entry exists with title: ${titleValue}`);
 
       const response = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries?query={"title":"${titleValue}"}`, {
         headers: {
@@ -67,19 +73,26 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       if (response.ok) {
         const data = await response.json();
         if (data.entries && data.entries.length > 0) {
+          secureLogger.success(`Entry found: ${data.entries[0].uid}`);
           return data.entries[0].uid;
+        } else {
+          secureLogger.info('Entry not found in destination stack');
         }
+      } else {
+        secureLogger.error(`API error checking entry existence: ${response.status}`, {
+          status: response.status,
+          statusText: response.statusText
+        });
       }
       
       return null;
     } catch (error) {
-      console.warn('Error checking entry existence:', error);
+      secureLogger.error('Error checking entry existence', { error: error instanceof Error ? error.message : 'Unknown error' });
       return null;
     }
   };
 
   const hasNewFields = (existingEntry: any, newData: any): boolean => {
-    // Check if there are any new fields that don't exist in the current entry
     for (const [key, value] of Object.entries(newData)) {
       if (value !== null && value !== undefined && value !== '') {
         if (!existingEntry[key] || existingEntry[key] !== value) {
@@ -90,7 +103,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     return false;
   };
 
-  const validateReferenceFields = (entryData: any): { hasIssues: boolean; issues: string[] } => {
+  const validateReferenceFields = (entryData: any, rowIndex: number): { hasIssues: boolean; issues: string[] } => {
     const issues: string[] = [];
     const referenceFields = fieldMapping.filter(m => m.fieldType === 'reference');
     
@@ -99,11 +112,13 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       if (refValue && Array.isArray(refValue) && refValue.length > 0) {
         const uid = refValue[0].uid;
         if (!uid || uid.trim() === '') {
-          issues.push(`Reference field '${refField.contentstackField}' has empty UID`);
+          const issue = `Reference field '${refField.contentstackField}' has empty UID`;
+          issues.push(issue);
+          secureLogger.warning(issue, { field: refField.contentstackField }, rowIndex);
         } else {
-          // Note: We're not actually checking if the referenced entry exists in Contentstack
-          // This would require additional API calls which might be expensive
-          issues.push(`Reference field '${refField.contentstackField}' points to '${uid}' (not verified if exists)`);
+          const issue = `Reference field '${refField.contentstackField}' points to '${uid}' (not verified if target exists in destination)`;
+          issues.push(issue);
+          secureLogger.info(issue, { field: refField.contentstackField, targetUid: uid }, rowIndex);
         }
       }
     });
@@ -114,6 +129,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   const createOrUpdateEntry = async (rowData: Record<string, string>, rowIndex: number): Promise<ImportResult> => {
     try {
       if (shouldStop) {
+        secureLogger.warning('Import stopped by user', {}, rowIndex);
         return {
           rowIndex,
           success: false,
@@ -133,16 +149,15 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         }
       });
 
-      console.log('Processing entry:', entryData);
+      secureLogger.info(`Processing entry: ${entryData.title}`, { entryTitle: entryData.title }, rowIndex);
 
       // Validate reference fields and provide detailed feedback
-      const { hasIssues, issues } = validateReferenceFields(entryData);
+      const { hasIssues, issues } = validateReferenceFields(entryData, rowIndex);
 
       // Check if entry already exists
       const existingEntryUid = await checkEntryExists(entryData);
       
       if (existingEntryUid) {
-        // Entry exists, check if we need to update it
         try {
           const getResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existingEntryUid}`, {
             headers: {
@@ -157,10 +172,11 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
             const existingEntry = existingData.entry;
 
             if (!hasNewFields(existingEntry, entryData)) {
-              let message = 'Entry exists with no new fields to update';
+              let message = 'Entry exists with no new fields to update - skipped';
               if (hasIssues) {
                 message += `. Reference field warnings: ${issues.join(', ')}`;
               }
+              secureLogger.info(message, { existingUid: existingEntryUid }, rowIndex);
               return {
                 rowIndex,
                 success: true,
@@ -170,6 +186,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
             }
 
             // Update existing entry
+            secureLogger.info(`Updating existing entry: ${existingEntryUid}`, {}, rowIndex);
             const updateResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existingEntryUid}`, {
               method: 'PUT',
               headers: {
@@ -182,7 +199,9 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
             if (!updateResponse.ok) {
               const errorData = await updateResponse.json();
-              throw new Error(errorData.error_message || 'Failed to update entry');
+              const errorMsg = errorData.error_message || 'Failed to update entry';
+              secureLogger.error(`Update failed: ${errorMsg}`, { responseStatus: updateResponse.status }, rowIndex);
+              throw new Error(errorMsg);
             }
 
             let published = false;
@@ -204,9 +223,12 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
                 if (publishResponse.ok) {
                   published = true;
+                  secureLogger.success(`Entry published successfully`, {}, rowIndex);
+                } else {
+                  secureLogger.warning(`Publish failed but entry was updated`, { publishStatus: publishResponse.status }, rowIndex);
                 }
               } catch (publishError) {
-                console.warn('Failed to publish updated entry:', publishError);
+                secureLogger.warning('Failed to publish updated entry', { error: publishError instanceof Error ? publishError.message : 'Unknown error' }, rowIndex);
               }
             }
 
@@ -215,6 +237,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
               message += `. Reference field warnings: ${issues.join(', ')}`;
             }
 
+            secureLogger.success(message, { updatedUid: existingEntryUid, published }, rowIndex);
             return {
               rowIndex,
               success: true,
@@ -224,16 +247,17 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
             };
           }
         } catch (error) {
-          console.warn('Error fetching existing entry:', error);
+          secureLogger.error('Error fetching existing entry for comparison', { error: error instanceof Error ? error.message : 'Unknown error' }, rowIndex);
         }
       }
 
-      // Entry doesn't exist - provide specific feedback about why we're not creating it
-      let message = `Entry with title "${entryData.title}" does not exist in Contentstack - skipped (policy: do not create new entries)`;
+      // Entry doesn't exist - provide specific feedback
+      let message = `Entry with title "${entryData.title}" does not exist in destination Contentstack - skipped (policy: do not create new entries)`;
       if (hasIssues) {
         message += `. Reference field issues that would have prevented creation: ${issues.join(', ')}`;
       }
 
+      secureLogger.info(message, { entryTitle: entryData.title, referenceIssues: hasIssues }, rowIndex);
       return {
         rowIndex,
         success: true,
@@ -241,11 +265,12 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       };
 
     } catch (error) {
-      console.error('Error processing entry:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      secureLogger.error(`Processing failed: ${errorMsg}`, { error: errorMsg }, rowIndex);
       return {
         rowIndex,
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: errorMsg
       };
     }
   };
@@ -257,11 +282,15 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     setResults([]);
     setShouldStop(false);
 
+    secureLogger.clearLogs();
+    secureLogger.info(`Starting import process for ${csvData.rows.length} rows`);
+
     const importResults: ImportResult[] = [];
     const totalRows = csvData.rows.length;
 
     for (let i = 0; i < totalRows; i++) {
       if (shouldStop) {
+        secureLogger.warning(`Import stopped by user at row ${i + 1}/${totalRows}`);
         toast({
           title: "Import Stopped",
           description: `Import stopped by user at row ${i + 1}/${totalRows}`
@@ -277,7 +306,6 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       const progressPercentage = ((i + 1) / totalRows) * 100;
       setProgress(progressPercentage);
 
-      // Small delay to prevent rate limiting
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
@@ -285,6 +313,8 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     const publishedCount = importResults.filter(r => r.published).length;
     const updatedCount = importResults.filter(r => r.success && r.error?.includes('updated')).length;
     const skippedCount = importResults.filter(r => r.success && (r.error?.includes('skipped') || r.error?.includes('no new fields'))).length;
+
+    secureLogger.success(`Import completed: ${importResults.length}/${totalRows} processed, ${updatedCount} updated, ${skippedCount} skipped, ${publishedCount} published`);
 
     toast({
       title: "Import Complete",
@@ -297,6 +327,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
   const stopImport = () => {
     setShouldStop(true);
+    secureLogger.warning('Stop import requested by user');
     toast({
       title: "Stopping Import",
       description: "Import will stop after current entry is processed"
@@ -323,132 +354,143 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-6">
-          {/* Import Summary */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card>
-              <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-blue-600">{csvData.rows.length}</div>
-                <div className="text-sm text-gray-600">Total Rows</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-green-600">{fieldMapping.length}</div>
-                <div className="text-sm text-gray-600">Mapped Fields</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-purple-600">
-                  {config.shouldPublish ? 'Yes' : 'No'}
-                </div>
-                <div className="text-sm text-gray-600">Auto Publish</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Progress */}
-          {isImporting && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>Processing row {currentRow} of {csvData.rows.length}</span>
-                  <span>{Math.round(progress)}%</span>
-                </div>
-                <Progress value={progress} className="w-full" />
-              </div>
+        <Tabs defaultValue="import" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="import">Import</TabsTrigger>
+            <TabsTrigger value="logs">Logs</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="import" className="space-y-6">
+            {/* Import Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-blue-600">{csvData.rows.length}</div>
+                  <div className="text-sm text-gray-600">Total Rows</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-green-600">{fieldMapping.length}</div>
+                  <div className="text-sm text-gray-600">Mapped Fields</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-purple-600">
+                    {config.shouldPublish ? 'Yes' : 'No'}
+                  </div>
+                  <div className="text-sm text-gray-600">Auto Publish</div>
+                </CardContent>
+              </Card>
             </div>
-          )}
 
-          {/* Results Summary */}
-          {results.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="text-center">
-                <Badge variant="default" className="bg-green-600">
-                  {successCount} Success
-                </Badge>
+            {/* Progress */}
+            {isImporting && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Processing row {currentRow} of {csvData.rows.length}</span>
+                    <span>{Math.round(progress)}%</span>
+                  </div>
+                  <Progress value={progress} className="w-full" />
+                </div>
               </div>
-              <div className="text-center">
-                <Badge variant="destructive">
-                  {errorCount} Errors
-                </Badge>
-              </div>
-              <div className="text-center">
-                <Badge variant="secondary">
-                  {publishedCount} Published
-                </Badge>
-              </div>
-              <div className="text-center">
-                <Badge variant="default" className="bg-blue-600">
-                  {updatedCount} Updated
-                </Badge>
-              </div>
-              <div className="text-center">
-                <Badge variant="outline">
-                  {skippedCount} Skipped
-                </Badge>
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* Results Details */}
-          {results.length > 0 && (
-            <div className="max-h-60 overflow-y-auto border rounded-lg">
-              <div className="p-4 space-y-2">
-                {results.map((result, index) => (
-                  <div key={index} className={`flex justify-between items-start p-3 rounded ${
-                    result.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-                  } border`}>
-                    <span className="text-sm font-medium">Row {result.rowIndex + 1}</span>
-                    <div className="flex flex-col items-end gap-1 max-w-2xl">
-                      <div className="flex items-center gap-2">
-                        {result.success ? (
-                          <>
-                            <Badge variant="default" className="bg-green-600 text-xs">Success</Badge>
-                            {result.published && (
-                              <Badge variant="secondary" className="text-xs">Published</Badge>
-                            )}
-                            {result.entryUid && (
-                              <span className="text-xs text-gray-500">{result.entryUid}</span>
-                            )}
-                          </>
-                        ) : (
-                          <Badge variant="destructive" className="text-xs">Error</Badge>
+            {/* Results Summary */}
+            {results.length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="text-center">
+                  <Badge variant="default" className="bg-green-600">
+                    {successCount} Success
+                  </Badge>
+                </div>
+                <div className="text-center">
+                  <Badge variant="destructive">
+                    {errorCount} Errors
+                  </Badge>
+                </div>
+                <div className="text-center">
+                  <Badge variant="secondary">
+                    {publishedCount} Published
+                  </Badge>
+                </div>
+                <div className="text-center">
+                  <Badge variant="default" className="bg-blue-600">
+                    {updatedCount} Updated
+                  </Badge>
+                </div>
+                <div className="text-center">
+                  <Badge variant="outline">
+                    {skippedCount} Skipped
+                  </Badge>
+                </div>
+              </div>
+            )}
+
+            {/* Results Details */}
+            {results.length > 0 && (
+              <div className="max-h-60 overflow-y-auto border rounded-lg">
+                <div className="p-4 space-y-2">
+                  {results.map((result, index) => (
+                    <div key={index} className={`flex justify-between items-start p-3 rounded ${
+                      result.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                    } border`}>
+                      <span className="text-sm font-medium">Row {result.rowIndex + 1}</span>
+                      <div className="flex flex-col items-end gap-1 max-w-2xl">
+                        <div className="flex items-center gap-2">
+                          {result.success ? (
+                            <>
+                              <Badge variant="default" className="bg-green-600 text-xs">Success</Badge>
+                              {result.published && (
+                                <Badge variant="secondary" className="text-xs">Published</Badge>
+                              )}
+                              {result.entryUid && (
+                                <span className="text-xs text-gray-500">{result.entryUid}</span>
+                              )}
+                            </>
+                          ) : (
+                            <Badge variant="destructive" className="text-xs">Error</Badge>
+                          )}
+                        </div>
+                        {result.error && (
+                          <span className={`text-xs text-right leading-relaxed ${
+                            result.success ? 'text-blue-600' : 'text-red-600'
+                          }`}>
+                            {result.error}
+                          </span>
                         )}
                       </div>
-                      {result.error && (
-                        <span className={`text-xs text-right leading-relaxed ${
-                          result.success ? 'text-blue-600' : 'text-red-600'
-                        }`}>
-                          {result.error}
-                        </span>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {!isImporting && results.length === 0 && (
-            <Button onClick={startImport} className="w-full bg-blue-600 hover:bg-blue-700">
-              Start Import Process
-            </Button>
-          )}
+            {!isImporting && results.length === 0 && (
+              <Button onClick={startImport} className="w-full bg-blue-600 hover:bg-blue-700">
+                Start Import Process
+              </Button>
+            )}
 
-          {isImporting && (
-            <div className="flex gap-2">
-              <Button disabled className="flex-1">
-                Importing... Please wait
-              </Button>
-              <Button onClick={stopImport} variant="destructive" className="flex items-center gap-2">
-                <StopCircle className="w-4 h-4" />
-                Stop Import
-              </Button>
-            </div>
-          )}
-        </div>
+            {isImporting && (
+              <div className="flex gap-2">
+                <Button disabled className="flex-1">
+                  Importing... Please wait
+                </Button>
+                <Button onClick={stopImport} variant="destructive" className="flex items-center gap-2">
+                  <StopCircle className="w-4 h-4" />
+                  Stop Import
+                </Button>
+              </div>
+            )}
+          </TabsContent>
+          
+          <TabsContent value="logs">
+            <LogsViewer />
+          </TabsContent>
+        </Tabs>
       </CardContent>
     </Card>
   );
