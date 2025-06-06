@@ -1,7 +1,90 @@
 
 import { ContentstackField, FlattenedField, BlockSchema } from '@/types/contentstack';
 
-export const flattenContentstackFields = (fields: ContentstackField[], parentPath = '', parentField = ''): FlattenedField[] => {
+export const flattenContentstackFields = async (
+  fields: ContentstackField[], 
+  parentPath = '', 
+  parentField = '',
+  config?: { apiKey: string; managementToken: string; host: string }
+): Promise<FlattenedField[]> => {
+  const flattened: FlattenedField[] = [];
+  
+  for (const field of fields) {
+    const fieldPath = parentPath ? `${parentPath}.${field.uid}` : field.uid;
+    
+    // Add the field itself (except for blocks which are containers)
+    if (field.data_type !== 'blocks') {
+      flattened.push({
+        uid: field.uid,
+        display_name: field.display_name,
+        data_type: field.data_type,
+        mandatory: field.mandatory,
+        reference_to: field.reference_to,
+        fieldPath,
+        parentField: parentField || undefined
+      });
+    }
+    
+    // Handle modular blocks
+    if (field.data_type === 'blocks' && field.blocks) {
+      field.blocks.forEach(block => {
+        block.schema.forEach(blockField => {
+          const blockFieldPath = `${fieldPath}.${block.uid}.${blockField.uid}`;
+          flattened.push({
+            uid: blockField.uid,
+            display_name: `${field.display_name} > ${block.title} > ${blockField.display_name}`,
+            data_type: blockField.data_type,
+            mandatory: blockField.mandatory,
+            reference_to: blockField.reference_to,
+            fieldPath: blockFieldPath,
+            parentField: field.uid,
+            blockType: block.uid
+          });
+        });
+      });
+    }
+    
+    // Handle global fields (fetch schema if not present)
+    if (field.data_type === 'global_field') {
+      let globalFieldSchema: ContentstackField[] = [];
+      
+      if (field.schema) {
+        // Schema is already included
+        globalFieldSchema = field.schema;
+      } else if (field.reference_to && config) {
+        // Need to fetch the global field schema
+        try {
+          const response = await fetch(`${config.host}/v3/global_fields/${field.reference_to}`, {
+            headers: {
+              'api_key': config.apiKey,
+              'authorization': config.managementToken,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            globalFieldSchema = data.global_field?.schema || [];
+          } else {
+            console.warn(`Failed to fetch global field schema for: ${field.reference_to}`);
+          }
+        } catch (error) {
+          console.warn(`Error fetching global field schema for ${field.reference_to}:`, error);
+        }
+      }
+      
+      if (globalFieldSchema.length > 0) {
+        const nestedFields = await flattenContentstackFields(globalFieldSchema, fieldPath, field.uid, config);
+        flattened.push(...nestedFields);
+      }
+    }
+  }
+  
+  return flattened;
+};
+
+// Synchronous version for when we already have the complete schema
+export const flattenContentstackFieldsSync = (fields: ContentstackField[], parentPath = '', parentField = ''): FlattenedField[] => {
   const flattened: FlattenedField[] = [];
   
   fields.forEach(field => {
@@ -41,7 +124,7 @@ export const flattenContentstackFields = (fields: ContentstackField[], parentPat
     
     // Handle global fields (they have nested schema)
     if (field.data_type === 'global_field' && field.schema) {
-      const nestedFields = flattenContentstackFields(field.schema, fieldPath, field.uid);
+      const nestedFields = flattenContentstackFieldsSync(field.schema, fieldPath, field.uid);
       flattened.push(...nestedFields);
     }
   });
@@ -89,10 +172,12 @@ export const transformNestedValue = async (
   }
   
   // Handle global field nested values
-  if (pathParts.length === 2) {
+  if (pathParts.length >= 2) {
     const transformedValue = await transformValue(value, fieldMapping);
     return {
-      [pathParts[1]]: transformedValue
+      fieldName: pathParts[pathParts.length - 1],
+      value: transformedValue,
+      isGlobalField: !fieldMapping.blockType
     };
   }
   
@@ -106,7 +191,7 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
   if (pathParts.length === 1) {
     // Simple field
     result[pathParts[0]] = newData;
-  } else if (pathParts.length === 3) {
+  } else if (pathParts.length === 3 && newData.blockType) {
     // Modular block field: fieldName.blockType.fieldName
     const [fieldName, blockType, blockFieldName] = pathParts;
     
@@ -123,15 +208,25 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
     
     // Set the field value directly (not nested)
     existingBlock[blockType][blockFieldName] = newData.value;
-  } else if (pathParts.length === 2) {
-    // Global field: globalFieldName.fieldName
-    const [globalFieldName, fieldName] = pathParts;
+  } else if (pathParts.length >= 2 && newData.isGlobalField) {
+    // Global field: globalFieldName.fieldName (can be deeper)
+    const [globalFieldName, ...nestedPath] = pathParts;
     
     if (!result[globalFieldName]) {
       result[globalFieldName] = {};
     }
     
-    result[globalFieldName][fieldName] = newData;
+    // Build the nested structure
+    let current = result[globalFieldName];
+    for (let i = 0; i < nestedPath.length - 1; i++) {
+      if (!current[nestedPath[i]]) {
+        current[nestedPath[i]] = {};
+      }
+      current = current[nestedPath[i]];
+    }
+    
+    // Set the final value
+    current[nestedPath[nestedPath.length - 1]] = newData.value;
   }
   
   return result;

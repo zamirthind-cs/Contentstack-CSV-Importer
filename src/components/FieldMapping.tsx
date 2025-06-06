@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { ContentstackConfig, FieldMapping as FieldMappingType, FlattenedField } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
-import { flattenContentstackFields, getFieldType } from '@/utils/fieldUtils';
+import { flattenContentstackFields, flattenContentstackFieldsSync, getFieldType } from '@/utils/fieldUtils';
 
 interface FieldMappingProps {
   csvHeaders: string[];
@@ -24,15 +23,37 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
   useEffect(() => {
     if (config.schema) {
       // Use uploaded schema and flatten it
-      const flattened = flattenContentstackFields(config.schema);
-      setFlattenedFields(flattened);
-      initializeMapping(flattened);
-      setIsLoading(false);
+      initializeFromSchema();
     } else {
       // Fallback to API fetch
       fetchContentstackFields();
     }
   }, []);
+
+  const initializeFromSchema = async () => {
+    try {
+      if (config.schema) {
+        // Use async flattening to handle global fields that need to be fetched
+        const flattened = await flattenContentstackFields(config.schema, '', '', {
+          apiKey: config.apiKey,
+          managementToken: config.managementToken,
+          host: config.host
+        });
+        setFlattenedFields(flattened);
+        initializeMapping(flattened);
+      }
+    } catch (error) {
+      console.warn('Error during async field flattening, falling back to sync:', error);
+      // Fallback to sync version if async fails
+      if (config.schema) {
+        const flattened = flattenContentstackFieldsSync(config.schema);
+        setFlattenedFields(flattened);
+        initializeMapping(flattened);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const initializeMapping = (fields: FlattenedField[]) => {
     const initialMapping = csvHeaders.map(header => {
@@ -73,7 +94,13 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
 
       const data = await response.json();
       const fields = data.content_type.schema || [];
-      const flattened = flattenContentstackFields(fields);
+      
+      // Use async flattening to handle global fields
+      const flattened = await flattenContentstackFields(fields, '', '', {
+        apiKey: config.apiKey,
+        managementToken: config.managementToken,
+        host: config.host
+      });
       
       setFlattenedFields(flattened);
       initializeMapping(flattened);
