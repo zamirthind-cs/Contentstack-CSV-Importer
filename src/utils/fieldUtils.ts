@@ -82,9 +82,9 @@ export const transformNestedValue = async (
     // This is a modular block field: fieldName.blockType.fieldName
     const transformedValue = await transformValue(value, fieldMapping);
     return {
-      [fieldMapping.blockType]: {
-        [pathParts[2]]: transformedValue
-      }
+      blockType: fieldMapping.blockType,
+      fieldName: pathParts[2],
+      value: transformedValue
     };
   }
   
@@ -121,7 +121,8 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
       result[fieldName].push(existingBlock);
     }
     
-    existingBlock[blockType][blockFieldName] = newData;
+    // Set the field value directly (not nested)
+    existingBlock[blockType][blockFieldName] = newData.value;
   } else if (pathParts.length === 2) {
     // Global field: globalFieldName.fieldName
     const [globalFieldName, fieldName] = pathParts;
