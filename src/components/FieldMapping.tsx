@@ -33,12 +33,21 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
   }, []);
 
   const initializeMapping = (fields: ContentstackField[]) => {
-    const initialMapping = csvHeaders.map(header => ({
-      csvColumn: header,
-      contentstackField: '__skip__',
-      fieldType: 'text' as const,
-      isRequired: false
-    }));
+    const initialMapping = csvHeaders.map(header => {
+      // Try to find a matching field by name or display name
+      const matchingField = fields.find(field => 
+        field.uid.toLowerCase() === header.toLowerCase() ||
+        field.display_name.toLowerCase() === header.toLowerCase()
+      );
+      
+      return {
+        csvColumn: header,
+        contentstackField: matchingField ? matchingField.uid : '__skip__',
+        fieldType: matchingField ? getFieldType(matchingField.data_type) : 'text' as const,
+        isRequired: matchingField ? matchingField.mandatory : false,
+        referenceContentType: matchingField?.data_type === 'reference' ? matchingField.reference_to?.[0] : undefined
+      };
+    });
     
     setMapping(initialMapping);
   };

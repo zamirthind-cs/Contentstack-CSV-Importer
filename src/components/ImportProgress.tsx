@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { ContentstackConfig, CsvData, FieldMapping, ImportResult } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
+import { StopCircle } from 'lucide-react';
 
 interface ImportProgressProps {
   csvData: CsvData;
@@ -27,6 +28,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   const [progress, setProgress] = useState(0);
   const [currentRow, setCurrentRow] = useState(0);
   const [results, setResults] = useState<ImportResult[]>([]);
+  const [shouldStop, setShouldStop] = useState(false);
   const { toast } = useToast();
 
   const transformValue = (value: string, fieldType: FieldMapping['fieldType']): any => {
@@ -47,8 +49,58 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     }
   };
 
-  const createEntry = async (rowData: Record<string, string>, rowIndex: number): Promise<ImportResult> => {
+  const checkEntryExists = async (entryData: any): Promise<string | null> => {
     try {
+      // Check if entry exists by title or unique identifier
+      const titleField = fieldMapping.find(m => m.contentstackField === 'title');
+      const titleValue = titleField ? entryData[titleField.contentstackField] : null;
+      
+      if (!titleValue) return null;
+
+      const response = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries?query={"title":"${titleValue}"}`, {
+        headers: {
+          'api_key': config.apiKey,
+          'authorization': config.managementToken,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.entries && data.entries.length > 0) {
+          return data.entries[0].uid;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('Error checking entry existence:', error);
+      return null;
+    }
+  };
+
+  const hasNewFields = (existingEntry: any, newData: any): boolean => {
+    // Check if there are any new fields that don't exist in the current entry
+    for (const [key, value] of Object.entries(newData)) {
+      if (value !== null && value !== undefined && value !== '') {
+        if (!existingEntry[key] || existingEntry[key] !== value) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const createOrUpdateEntry = async (rowData: Record<string, string>, rowIndex: number): Promise<ImportResult> => {
+    try {
+      if (shouldStop) {
+        return {
+          rowIndex,
+          success: false,
+          error: 'Import stopped by user'
+        };
+      }
+
       // Transform row data according to field mapping
       const entryData: any = {
         title: rowData[fieldMapping.find(m => m.contentstackField === 'title')?.csvColumn || ''] || `Entry ${rowIndex + 1}`
@@ -61,62 +113,98 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         }
       });
 
-      console.log('Creating entry:', entryData);
+      console.log('Processing entry:', entryData);
 
-      // Create entry
-      const createResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries`, {
-        method: 'POST',
-        headers: {
-          'api_key': config.apiKey,
-          'authorization': config.managementToken,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ entry: entryData })
-      });
-
-      if (!createResponse.ok) {
-        const errorData = await createResponse.json();
-        throw new Error(errorData.error_message || 'Failed to create entry');
-      }
-
-      const createResult = await createResponse.json();
-      const entryUid = createResult.entry.uid;
-
-      let published = false;
-
-      // Publish entry if requested
-      if (config.shouldPublish && config.environment) {
+      // Check if entry already exists
+      const existingEntryUid = await checkEntryExists(entryData);
+      
+      if (existingEntryUid) {
+        // Entry exists, check if we need to update it
         try {
-          const publishResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${entryUid}/publish`, {
-            method: 'POST',
+          const getResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existingEntryUid}`, {
             headers: {
               'api_key': config.apiKey,
               'authorization': config.managementToken,
               'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              entry: {
-                environments: [config.environment]
-              }
-            })
+            }
           });
 
-          if (publishResponse.ok) {
-            published = true;
+          if (getResponse.ok) {
+            const existingData = await getResponse.json();
+            const existingEntry = existingData.entry;
+
+            if (!hasNewFields(existingEntry, entryData)) {
+              return {
+                rowIndex,
+                success: true,
+                entryUid: existingEntryUid,
+                error: 'Entry exists with no new fields - skipped'
+              };
+            }
+
+            // Update existing entry
+            const updateResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existingEntryUid}`, {
+              method: 'PUT',
+              headers: {
+                'api_key': config.apiKey,
+                'authorization': config.managementToken,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ entry: entryData })
+            });
+
+            if (!updateResponse.ok) {
+              const errorData = await updateResponse.json();
+              throw new Error(errorData.error_message || 'Failed to update entry');
+            }
+
+            let published = false;
+            if (config.shouldPublish && config.environment) {
+              try {
+                const publishResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existingEntryUid}/publish`, {
+                  method: 'POST',
+                  headers: {
+                    'api_key': config.apiKey,
+                    'authorization': config.managementToken,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    entry: {
+                      environments: [config.environment]
+                    }
+                  })
+                });
+
+                if (publishResponse.ok) {
+                  published = true;
+                }
+              } catch (publishError) {
+                console.warn('Failed to publish updated entry:', publishError);
+              }
+            }
+
+            return {
+              rowIndex,
+              success: true,
+              entryUid: existingEntryUid,
+              published,
+              error: 'Entry updated with new fields'
+            };
           }
-        } catch (publishError) {
-          console.warn('Failed to publish entry:', publishError);
+        } catch (error) {
+          console.warn('Error fetching existing entry:', error);
         }
       }
 
+      // Entry doesn't exist, skip it (as per requirements)
       return {
         rowIndex,
         success: true,
-        entryUid,
-        published
+        error: 'Entry does not exist - skipped (not creating new entries)'
       };
+
     } catch (error) {
-      console.error('Error creating entry:', error);
+      console.error('Error processing entry:', error);
       return {
         rowIndex,
         success: false,
@@ -130,13 +218,22 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     setProgress(0);
     setCurrentRow(0);
     setResults([]);
+    setShouldStop(false);
 
     const importResults: ImportResult[] = [];
     const totalRows = csvData.rows.length;
 
     for (let i = 0; i < totalRows; i++) {
+      if (shouldStop) {
+        toast({
+          title: "Import Stopped",
+          description: `Import stopped by user at row ${i + 1}/${totalRows}`
+        });
+        break;
+      }
+
       setCurrentRow(i + 1);
-      const result = await createEntry(csvData.rows[i], i);
+      const result = await createOrUpdateEntry(csvData.rows[i], i);
       importResults.push(result);
       setResults([...importResults]);
       
@@ -149,18 +246,31 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
     const successCount = importResults.filter(r => r.success).length;
     const publishedCount = importResults.filter(r => r.published).length;
+    const updatedCount = importResults.filter(r => r.success && r.error?.includes('updated')).length;
+    const skippedCount = importResults.filter(r => r.success && r.error?.includes('skipped')).length;
 
     toast({
       title: "Import Complete",
-      description: `Successfully imported ${successCount}/${totalRows} entries. ${publishedCount} published.`
+      description: `Processed ${importResults.length}/${totalRows} entries. ${updatedCount} updated, ${skippedCount} skipped, ${publishedCount} published.`
     });
 
+    setIsImporting(false);
     onImportComplete(importResults);
+  };
+
+  const stopImport = () => {
+    setShouldStop(true);
+    toast({
+      title: "Stopping Import",
+      description: "Import will stop after current entry is processed"
+    });
   };
 
   const successCount = results.filter(r => r.success).length;
   const errorCount = results.filter(r => !r.success).length;
   const publishedCount = results.filter(r => r.published).length;
+  const updatedCount = results.filter(r => r.success && r.error?.includes('updated')).length;
+  const skippedCount = results.filter(r => r.success && r.error?.includes('skipped')).length;
 
   return (
     <Card>
@@ -216,7 +326,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
           {/* Results Summary */}
           {results.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="text-center">
                 <Badge variant="default" className="bg-green-600">
                   {successCount} Success
@@ -230,6 +340,16 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
               <div className="text-center">
                 <Badge variant="secondary">
                   {publishedCount} Published
+                </Badge>
+              </div>
+              <div className="text-center">
+                <Badge variant="default" className="bg-blue-600">
+                  {updatedCount} Updated
+                </Badge>
+              </div>
+              <div className="text-center">
+                <Badge variant="outline">
+                  {skippedCount} Skipped
                 </Badge>
               </div>
             </div>
@@ -254,6 +374,9 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
                           {result.entryUid && (
                             <span className="text-xs text-gray-500">{result.entryUid}</span>
                           )}
+                          {result.error && (
+                            <span className="text-xs text-blue-600">{result.error}</span>
+                          )}
                         </>
                       ) : (
                         <>
@@ -275,9 +398,15 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
           )}
 
           {isImporting && (
-            <Button disabled className="w-full">
-              Importing... Please wait
-            </Button>
+            <div className="flex gap-2">
+              <Button disabled className="flex-1">
+                Importing... Please wait
+              </Button>
+              <Button onClick={stopImport} variant="destructive" className="flex items-center gap-2">
+                <StopCircle className="w-4 h-4" />
+                Stop Import
+              </Button>
+            </div>
           )}
         </div>
       </CardContent>

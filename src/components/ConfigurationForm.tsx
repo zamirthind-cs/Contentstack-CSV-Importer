@@ -63,6 +63,11 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
 
     setSchemaFile(file);
     
+    // Auto-populate content type UID from filename
+    const filename = file.name;
+    const contentTypeUid = filename.replace('.json', '');
+    setConfig(prev => ({ ...prev, contentType: contentTypeUid }));
+    
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
@@ -82,7 +87,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
         
         toast({
           title: "Schema Uploaded",
-          description: `Successfully loaded ${schema.length} fields from schema`
+          description: `Successfully loaded ${schema.length} fields from schema. Content type UID set to "${contentTypeUid}"`
         });
       } catch (error) {
         toast({
@@ -154,7 +159,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
                 type="text"
                 value={config.contentType}
                 onChange={(e) => handleInputChange('contentType', e.target.value)}
-                placeholder="Enter content type UID"
+                placeholder="Will auto-populate from schema filename"
                 required
               />
             </div>
@@ -193,11 +198,11 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
               <Upload className="w-4 h-4 text-gray-500" />
             </div>
             <p className="text-sm text-gray-500">
-              Upload your content type JSON schema to automatically populate field mappings
+              Upload your content type JSON schema to automatically populate field mappings and content type UID
             </p>
             {config.schema && (
               <p className="text-sm text-green-600">
-                ✓ Schema loaded with {config.schema.length} fields
+                ✓ Schema loaded with {config.schema.length} fields. Content type: "{config.contentType}"
               </p>
             )}
           </div>
