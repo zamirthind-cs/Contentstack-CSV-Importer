@@ -252,7 +252,8 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
     const blockType = newData.blockType;
     const fieldName = newData.fieldName;
     
-    if (!result[globalFieldName]) {
+    if (!result[globalFieldName] || typeof result[globalFieldName] === 'string') {
+      // If the global field doesn't exist or is a string, initialize it as an object
       result[globalFieldName] = {};
     }
     
@@ -291,7 +292,8 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
     const globalFieldName = newData.globalFieldName;
     const nestedPath = newData.nestedPath;
     
-    if (!result[globalFieldName]) {
+    if (!result[globalFieldName] || typeof result[globalFieldName] === 'string') {
+      // If the global field doesn't exist or is a string, initialize it as an object
       result[globalFieldName] = {};
     }
     
