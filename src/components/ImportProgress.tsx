@@ -33,6 +33,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   const [results, setResults] = useState<ImportResult[]>([]);
   const [shouldStop, setShouldStop] = useState(false);
   const [orgName, setOrgName] = useState<string>('destination stack');
+  const [referenceCache, setReferenceCache] = useState<Map<string, string>>(new Map());
   const { toast } = useToast();
 
   const getOrganizationName = async (): Promise<string> => {
@@ -60,10 +61,73 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     }
   };
 
-  const transformValue = (value: string, fieldType: FieldMapping['fieldType']): any => {
+  const resolveReference = async (contentTypeUid: string, titleValue: string): Promise<{ uid: string; _content_type_uid: string } | null> => {
+    const cacheKey = `${contentTypeUid}:${titleValue}`;
+    
+    // Check cache first
+    if (referenceCache.has(cacheKey)) {
+      const cachedUid = referenceCache.get(cacheKey);
+      if (cachedUid === 'NOT_FOUND') {
+        return null;
+      }
+      return {
+        uid: cachedUid!,
+        _content_type_uid: contentTypeUid
+      };
+    }
+
+    try {
+      secureLogger.info(`Resolving reference: ${contentTypeUid} -> "${titleValue}"`);
+      
+      const response = await fetch(`https://${config.host}/v3/content_types/${contentTypeUid}/entries?query={"title":"${titleValue}"}`, {
+        headers: {
+          'api_key': config.apiKey,
+          'authorization': config.managementToken,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const match = data.entries?.[0];
+        
+        if (match) {
+          // Cache the successful resolution
+          setReferenceCache(prev => new Map(prev.set(cacheKey, match.uid)));
+          secureLogger.success(`Reference resolved: ${contentTypeUid} "${titleValue}" -> ${match.uid}`);
+          return {
+            uid: match.uid,
+            _content_type_uid: contentTypeUid
+          };
+        } else {
+          // Cache the "not found" result
+          setReferenceCache(prev => new Map(prev.set(cacheKey, 'NOT_FOUND')));
+          secureLogger.warning(`Reference not found: ${contentTypeUid} "${titleValue}"`);
+          return null;
+        }
+      } else {
+        const errorData = await response.json();
+        secureLogger.error(`Reference resolution failed: ${response.status}`, {
+          contentType: contentTypeUid,
+          title: titleValue,
+          error: errorData
+        });
+        return null;
+      }
+    } catch (error) {
+      secureLogger.error('Error resolving reference', {
+        contentType: contentTypeUid,
+        title: titleValue,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return null;
+    }
+  };
+
+  const transformValue = async (value: string, fieldMapping: FieldMapping): Promise<any> => {
     if (!value || value.trim() === '') return null;
     
-    switch (fieldType) {
+    switch (fieldMapping.fieldType) {
       case 'number':
         return parseFloat(value);
       case 'boolean':
@@ -71,7 +135,11 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       case 'date':
         return new Date(value).toISOString();
       case 'reference':
-        return [{ uid: value }];
+        if (fieldMapping.referenceContentType) {
+          const resolvedRef = await resolveReference(fieldMapping.referenceContentType, value);
+          return resolvedRef ? [resolvedRef] : null;
+        }
+        return null;
       default:
         return value;
     }
@@ -146,25 +214,27 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     return { hasUpdates: fieldsToUpdate.length > 0, fieldsToUpdate };
   };
 
-  const validateReferenceFields = (entryData: any, rowIndex: number): { hasIssues: boolean; issues: string[] } => {
+  const validateReferenceFields = async (entryData: any, rowIndex: number): Promise<{ hasIssues: boolean; issues: string[] }> => {
     const issues: string[] = [];
     const referenceFields = fieldMapping.filter(m => m.fieldType === 'reference');
     
-    referenceFields.forEach(refField => {
+    for (const refField of referenceFields) {
       const refValue = entryData[refField.contentstackField];
       if (refValue && Array.isArray(refValue) && refValue.length > 0) {
-        const uid = refValue[0].uid;
-        if (!uid || uid.trim() === '') {
+        const refEntry = refValue[0];
+        if (!refEntry.uid || refEntry.uid.trim() === '') {
           const issue = `Reference field '${refField.contentstackField}' has empty UID`;
           issues.push(issue);
           secureLogger.warning(issue, { field: refField.contentstackField }, rowIndex);
         } else {
-          const issue = `Reference field '${refField.contentstackField}' points to '${uid}' (not verified if target exists in ${orgName})`;
-          issues.push(issue);
-          secureLogger.info(issue, { field: refField.contentstackField, targetUid: uid }, rowIndex);
+          secureLogger.info(`Reference field '${refField.contentstackField}' resolved to UID: ${refEntry.uid}`, { field: refField.contentstackField, targetUid: refEntry.uid }, rowIndex);
         }
+      } else if (refValue === null) {
+        const issue = `Reference field '${refField.contentstackField}' could not be resolved - target entry not found in ${orgName}`;
+        issues.push(issue);
+        secureLogger.warning(issue, { field: refField.contentstackField }, rowIndex);
       }
-    });
+    }
     
     return { hasIssues: issues.length > 0, issues };
   };
@@ -185,17 +255,21 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         title: rowData[fieldMapping.find(m => m.contentstackField === 'title')?.csvColumn || ''] || `Entry ${rowIndex + 1}`
       };
 
-      fieldMapping.forEach(mapping => {
+      // Process each field mapping, including reference resolution
+      for (const mapping of fieldMapping) {
         const csvValue = rowData[mapping.csvColumn];
         if (csvValue !== undefined && csvValue !== '') {
-          entryData[mapping.contentstackField] = transformValue(csvValue, mapping.fieldType);
+          const transformedValue = await transformValue(csvValue, mapping);
+          if (transformedValue !== null) {
+            entryData[mapping.contentstackField] = transformedValue;
+          }
         }
-      });
+      }
 
       secureLogger.info(`Processing entry: ${entryData.title}`, { entryTitle: entryData.title }, rowIndex);
 
       // Validate reference fields and provide detailed feedback
-      const { hasIssues, issues } = validateReferenceFields(entryData, rowIndex);
+      const { hasIssues, issues } = await validateReferenceFields(entryData, rowIndex);
 
       // Check if entry already exists
       const existsResult = await checkEntryExists(entryData);
@@ -204,7 +278,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         const { hasUpdates, fieldsToUpdate } = hasEmptyFieldsToUpdate(existsResult.entry, entryData);
         
         if (!hasUpdates) {
-          let message = `Entry "${entryData.title}" exists in ${orgName} – skipped: all fields are already filled or no new data provided`;
+          let message = `Entry "${entryData.title}" exists in ${orgName} – skipped: all fields are already populated or no new data provided`;
           if (hasIssues) {
             message += `. Reference field warnings: ${issues.join(', ')}`;
           }
@@ -314,6 +388,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     setCurrentRow(0);
     setResults([]);
     setShouldStop(false);
+    setReferenceCache(new Map()); // Clear reference cache
 
     secureLogger.clearLogs();
     
