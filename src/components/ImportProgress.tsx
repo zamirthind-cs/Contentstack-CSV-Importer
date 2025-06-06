@@ -249,20 +249,6 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     return { hasIssues: issues.length > 0, issues };
   };
 
-  const generateUniqueTitle = (rowData: Record<string, string>, rowIndex: number): string => {
-    const titleMapping = fieldMapping.find(m => m.contentstackField === 'title');
-    
-    if (titleMapping && rowData[titleMapping.csvColumn]) {
-      // Use the actual title from CSV if available
-      return rowData[titleMapping.csvColumn];
-    }
-    
-    // Generate a unique title with timestamp to avoid duplicates
-    const timestamp = Date.now();
-    const randomSuffix = Math.floor(Math.random() * 1000);
-    return `Entry_${rowIndex + 1}_${timestamp}_${randomSuffix}`;
-  };
-
   const createOrUpdateEntry = async (rowData: Record<string, string>, rowIndex: number): Promise<ImportResult> => {
     try {
       if (shouldStop) {
@@ -274,12 +260,9 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         };
       }
 
-      // Generate a unique title
-      const uniqueTitle = generateUniqueTitle(rowData, rowIndex);
-      
-      // Initialize entry data with the unique title
+      // Initialize entry data with title
       let entryData: any = {
-        title: uniqueTitle
+        title: rowData[fieldMapping.find(m => m.contentstackField === 'title')?.csvColumn || ''] || `Entry ${rowIndex + 1}`
       };
 
       // Process each field mapping, including nested field handling
