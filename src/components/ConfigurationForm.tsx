@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ContentstackConfig, ContentstackField } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
 import { Upload } from 'lucide-react';
@@ -17,7 +18,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
   const [config, setConfig] = useState<ContentstackConfig>({
     apiKey: '',
     managementToken: '',
-    host: 'api.contentstack.io',
+    host: 'https://api.contentstack.io',
     contentType: '',
     shouldPublish: false,
     environment: 'development'
@@ -32,6 +33,15 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
       toast({
         title: "Missing Required Fields",
         description: "Please fill in all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!config.schema) {
+      toast({
+        title: "Schema Required",
+        description: "Please upload a content type schema JSON file",
         variant: "destructive"
       });
       return;
@@ -111,7 +121,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
           Contentstack Configuration
         </CardTitle>
         <CardDescription>
-          Enter your Contentstack API credentials and content type information
+          Enter your Contentstack API credentials and upload your content type schema
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -142,14 +152,19 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="host">Host</Label>
-              <Input
-                id="host"
-                type="text"
+              <Label htmlFor="host">API Host *</Label>
+              <Select
                 value={config.host}
-                onChange={(e) => handleInputChange('host', e.target.value)}
-                placeholder="api.contentstack.io"
-              />
+                onValueChange={(value) => handleInputChange('host', value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select API host" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="https://api.contentstack.io">US – https://api.contentstack.io</SelectItem>
+                  <SelectItem value="https://eu-api.contentstack.com">EU – https://eu-api.contentstack.com</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             
             <div className="space-y-2">
@@ -158,10 +173,14 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
                 id="contentType"
                 type="text"
                 value={config.contentType}
-                onChange={(e) => handleInputChange('contentType', e.target.value)}
-                placeholder="Will auto-populate from schema filename"
+                disabled
+                className="bg-gray-100"
+                placeholder="Auto-populated from schema filename"
                 required
               />
+              <p className="text-xs text-gray-500">
+                This field is automatically populated from your uploaded schema filename
+              </p>
             </div>
             
             <div className="space-y-2">
@@ -186,7 +205,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="schema">Upload Content Type Schema (Optional)</Label>
+            <Label htmlFor="schema">Upload Content Type Schema *</Label>
             <div className="flex items-center gap-2">
               <Input
                 id="schema"
@@ -194,15 +213,21 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
                 accept=".json"
                 onChange={handleSchemaUpload}
                 className="cursor-pointer"
+                required
               />
               <Upload className="w-4 h-4 text-gray-500" />
             </div>
             <p className="text-sm text-gray-500">
-              Upload your content type JSON schema to automatically populate field mappings and content type UID
+              Upload your content type JSON schema (e.g., blog_post.json) to configure field mappings and validation
             </p>
             {config.schema && (
               <p className="text-sm text-green-600">
                 ✓ Schema loaded with {config.schema.length} fields. Content type: "{config.contentType}"
+              </p>
+            )}
+            {!schemaFile && (
+              <p className="text-sm text-red-600">
+                Schema upload is required to proceed with the import
               </p>
             )}
           </div>

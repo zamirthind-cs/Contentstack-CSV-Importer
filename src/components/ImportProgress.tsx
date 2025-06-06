@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -94,7 +93,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         if (match) {
           // Cache the successful resolution
           setReferenceCache(prev => new Map(prev.set(cacheKey, match.uid)));
-          secureLogger.success(`Reference resolved: ${contentTypeUid} "${titleValue}" -> ${match.uid}`);
+          secureLogger.success(`Referenced "${titleValue}" (UID: ${match.uid}) successfully linked to content type "${contentTypeUid}"`);
           return {
             uid: match.uid,
             _content_type_uid: contentTypeUid
@@ -102,7 +101,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         } else {
           // Cache the "not found" result
           setReferenceCache(prev => new Map(prev.set(cacheKey, 'NOT_FOUND')));
-          secureLogger.warning(`Reference not found: ${contentTypeUid} "${titleValue}"`);
+          secureLogger.warning(`Warning: Reference value "${titleValue}" not found in content type "${contentTypeUid}". Field left empty.`);
           return null;
         }
       } else {
@@ -226,8 +225,6 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
           const issue = `Reference field '${refField.contentstackField}' has empty UID`;
           issues.push(issue);
           secureLogger.warning(issue, { field: refField.contentstackField }, rowIndex);
-        } else {
-          secureLogger.info(`Reference field '${refField.contentstackField}' resolved to UID: ${refEntry.uid}`, { field: refField.contentstackField, targetUid: refEntry.uid }, rowIndex);
         }
       } else if (refValue === null) {
         const issue = `Reference field '${refField.contentstackField}' could not be resolved - target entry not found in ${orgName}`;
@@ -380,16 +377,87 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         };
       }
 
-      // Entry doesn't exist - provide specific feedback
-      let message = `Entry "${entryData.title}" does not exist in ${orgName} – skipped (policy: do not create new entries)`;
-      if (hasIssues) {
-        message += `. Reference field issues that would have prevented creation: ${issues.join(', ')}`;
+      // Entry doesn't exist - create it
+      secureLogger.info(`Entry "${entryData.title}" not found in ${orgName} – creating new entry`);
+
+      const createResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries`, {
+        method: 'POST',
+        headers: {
+          'api_key': config.apiKey,
+          'authorization': config.managementToken,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ entry: entryData })
+      });
+
+      if (!createResponse.ok) {
+        const errorData = await createResponse.json();
+        const errorMsg = errorData.error_message || 'Failed to create entry';
+        secureLogger.error(`Creation failed: ${errorMsg}`, { responseStatus: createResponse.status }, rowIndex);
+        throw new Error(errorMsg);
       }
 
-      secureLogger.info(message, { entryTitle: entryData.title, referenceIssues: hasIssues }, rowIndex);
+      const createdEntryResponse = await createResponse.json();
+      const createdEntry = createdEntryResponse.entry;
+
+      let published = false;
+      if (config.shouldPublish && config.environment) {
+        try {
+          // Create publish payload with the complete entry data including references
+          const publishPayload: any = {
+            entry: {
+              environments: [config.environment]
+            }
+          };
+
+          // Add reference data to publish payload if the entry has references
+          const referenceFields = fieldMapping.filter(m => m.fieldType === 'reference');
+          if (referenceFields.length > 0) {
+            publishPayload.entry = {
+              ...publishPayload.entry,
+              ...Object.fromEntries(
+                referenceFields
+                  .filter(field => createdEntry[field.contentstackField])
+                  .map(field => [field.contentstackField, createdEntry[field.contentstackField]])
+              )
+            };
+          }
+
+          secureLogger.info(`Publishing created entry with references: ${createdEntry.uid}`, { publishPayload }, rowIndex);
+
+          const publishResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${createdEntry.uid}/publish`, {
+            method: 'POST',
+            headers: {
+              'api_key': config.apiKey,
+              'authorization': config.managementToken,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(publishPayload)
+          });
+
+          if (publishResponse.ok) {
+            published = true;
+            secureLogger.success(`Entry published successfully in ${orgName}`, {}, rowIndex);
+          } else {
+            const publishError = await publishResponse.json();
+            secureLogger.warning(`Publish failed but entry was created in ${orgName}: ${publishError.error_message || 'Unknown publish error'}`, { publishStatus: publishResponse.status, publishError }, rowIndex);
+          }
+        } catch (publishError) {
+          secureLogger.warning(`Failed to publish created entry in ${orgName}`, { error: publishError instanceof Error ? publishError.message : 'Unknown error' }, rowIndex);
+        }
+      }
+
+      let message = `Entry "${entryData.title}" created${published ? ' and published' : ''} in ${orgName}`;
+      if (hasIssues) {
+        message += `. Reference field warnings: ${issues.join(', ')}`;
+      }
+
+      secureLogger.success(message, { createdUid: createdEntry.uid, published }, rowIndex);
       return {
         rowIndex,
         success: true,
+        entryUid: createdEntry.uid,
+        published,
         error: message
       };
 
@@ -447,13 +515,14 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     const successCount = importResults.filter(r => r.success).length;
     const publishedCount = importResults.filter(r => r.published).length;
     const updatedCount = importResults.filter(r => r.success && r.error?.includes('updated')).length;
+    const createdCount = importResults.filter(r => r.success && r.error?.includes('created')).length;
     const skippedCount = importResults.filter(r => r.success && (r.error?.includes('skipped') || r.error?.includes('no new fields'))).length;
 
-    secureLogger.success(`Import completed to ${retrievedOrgName}: ${importResults.length}/${totalRows} processed, ${updatedCount} updated, ${skippedCount} skipped, ${publishedCount} published`);
+    secureLogger.success(`Import completed to ${retrievedOrgName}: ${importResults.length}/${totalRows} processed, ${createdCount} created, ${updatedCount} updated, ${skippedCount} skipped, ${publishedCount} published`);
 
     toast({
       title: "Import Complete",
-      description: `Processed ${importResults.length}/${totalRows} entries. ${updatedCount} updated, ${skippedCount} skipped, ${publishedCount} published.`
+      description: `Processed ${importResults.length}/${totalRows} entries. ${createdCount} created, ${updatedCount} updated, ${skippedCount} skipped, ${publishedCount} published.`
     });
 
     setIsImporting(false);
@@ -473,6 +542,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   const errorCount = results.filter(r => !r.success).length;
   const publishedCount = results.filter(r => r.published).length;
   const updatedCount = results.filter(r => r.success && r.error?.includes('updated')).length;
+  const createdCount = results.filter(r => r.success && r.error?.includes('created')).length;
   const skippedCount = results.filter(r => r.success && (r.error?.includes('skipped') || r.error?.includes('no new fields'))).length;
 
   return (
@@ -535,7 +605,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
             {/* Results Summary */}
             {results.length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                 <div className="text-center">
                   <Badge variant="default" className="bg-green-600">
                     {successCount} Success
@@ -554,6 +624,11 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
                 <div className="text-center">
                   <Badge variant="default" className="bg-blue-600">
                     {updatedCount} Updated
+                  </Badge>
+                </div>
+                <div className="text-center">
+                  <Badge variant="default" className="bg-purple-600">
+                    {createdCount} Created
                   </Badge>
                 </div>
                 <div className="text-center">
