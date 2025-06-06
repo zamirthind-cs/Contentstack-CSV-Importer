@@ -1,4 +1,3 @@
-
 import { ContentstackField, FlattenedField, BlockSchema } from '@/types/contentstack';
 
 export const flattenContentstackFields = async (
@@ -204,7 +203,16 @@ export const transformNestedValue = async (
   
   // Handle modular blocks within global fields: globalField.modular_blocks.blockType.fieldName
   if (pathParts.length === 4 && pathParts[1] === 'modular_blocks' && fieldMapping.blockType) {
-    const transformedValue = await transformValue(value, fieldMapping);
+    let transformedValue = await transformValue(value, fieldMapping);
+    
+    // Special handling for link fields in modular blocks
+    if (pathParts[3] === 'link' && typeof transformedValue === 'string') {
+      transformedValue = {
+        title: value, // Use the CSV value as title
+        href: value   // Use the CSV value as href
+      };
+    }
+    
     return {
       isGlobalFieldBlock: true,
       globalFieldName: pathParts[0],
@@ -216,7 +224,16 @@ export const transformNestedValue = async (
   
   // Handle direct modular blocks: fieldName.blockType.fieldName
   if (pathParts.length === 3 && fieldMapping.blockType) {
-    const transformedValue = await transformValue(value, fieldMapping);
+    let transformedValue = await transformValue(value, fieldMapping);
+    
+    // Special handling for link fields in modular blocks
+    if (pathParts[2] === 'link' && typeof transformedValue === 'string') {
+      transformedValue = {
+        title: value, // Use the CSV value as title
+        href: value   // Use the CSV value as href
+      };
+    }
+    
     return {
       blockType: fieldMapping.blockType,
       fieldName: pathParts[2],
