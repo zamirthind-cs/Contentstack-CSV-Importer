@@ -196,15 +196,22 @@ export const transformNestedValue = async (
 ): Promise<any> => {
   if (!value || value.trim() === '') return null;
   
+  console.log(`🔧 TRANSFORM DEBUG: Processing fieldPath: ${fieldPath}`);
+  console.log(`🔧 TRANSFORM DEBUG: Field mapping:`, fieldMapping);
+  console.log(`🔧 TRANSFORM DEBUG: Value: ${value}`);
+  
   const pathParts = fieldPath.split('.');
+  console.log(`🔧 TRANSFORM DEBUG: Path parts:`, pathParts);
   
   // Handle simple fields
   if (pathParts.length === 1) {
+    console.log(`🔧 TRANSFORM DEBUG: Simple field processing`);
     return await transformValue(value, fieldMapping);
   }
   
   // Handle modular blocks within global fields: globalField.modular_blocks.blockType.fieldName
   if (pathParts.length === 4 && pathParts[1] === 'modular_blocks' && fieldMapping.blockType) {
+    console.log(`🔧 TRANSFORM DEBUG: Global field block processing`);
     const transformedValue = await transformValue(value, fieldMapping);
     
     return {
@@ -218,6 +225,7 @@ export const transformNestedValue = async (
   
   // Handle direct modular blocks: fieldName.blockType.fieldName
   if (pathParts.length === 3 && fieldMapping.blockType) {
+    console.log(`🔧 TRANSFORM DEBUG: Direct modular block processing`);
     const transformedValue = await transformValue(value, fieldMapping);
     
     return {
@@ -227,18 +235,22 @@ export const transformNestedValue = async (
     };
   }
   
-  // Handle global field nested values (non-block)
+  // Handle global field nested values (non-block) - THIS IS THE KEY FIX
   if (pathParts.length >= 2 && !fieldMapping.blockType) {
+    console.log(`🔧 TRANSFORM DEBUG: Global field nested value processing`);
     const transformedValue = await transformValue(value, fieldMapping);
-    return {
+    const result = {
       fieldName: pathParts[pathParts.length - 1],
       value: transformedValue,
       isGlobalField: true,
       globalFieldName: pathParts[0],
       nestedPath: pathParts.slice(1)
     };
+    console.log(`🔧 TRANSFORM DEBUG: Transformed result:`, result);
+    return result;
   }
   
+  console.log(`🔧 TRANSFORM DEBUG: Fallback to simple transform`);
   return await transformValue(value, fieldMapping);
 };
 
