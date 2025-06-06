@@ -1,3 +1,4 @@
+
 export interface ContentstackConfig {
   apiKey: string;
   managementToken: string;
@@ -16,9 +17,11 @@ export interface CsvData {
 export interface FieldMapping {
   csvColumn: string;
   contentstackField: string;
-  fieldType: 'text' | 'number' | 'boolean' | 'date' | 'reference' | 'file';
+  fieldType: 'text' | 'number' | 'boolean' | 'date' | 'reference' | 'file' | 'blocks' | 'global_field';
   isRequired: boolean;
   referenceContentType?: string;
+  blockType?: string;
+  parentField?: string;
 }
 
 export interface ImportResult {
@@ -35,4 +38,23 @@ export interface ContentstackField {
   data_type: string;
   mandatory: boolean;
   reference_to?: string[];
+  blocks?: BlockSchema[];
+  schema?: ContentstackField[];
+}
+
+export interface BlockSchema {
+  title: string;
+  uid: string;
+  schema: ContentstackField[];
+}
+
+export interface FlattenedField {
+  uid: string;
+  display_name: string;
+  data_type: string;
+  mandatory: boolean;
+  reference_to?: string[];
+  fieldPath: string;
+  parentField?: string;
+  blockType?: string;
 }

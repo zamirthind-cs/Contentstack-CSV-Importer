@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { StopCircle } from 'lucide-react';
 import { secureLogger } from '@/utils/secureLogger';
 import LogsViewer from '@/components/LogsViewer';
+import { transformNestedValue, mergeNestedData } from '@/utils/fieldUtils';
 
 interface ImportProgressProps {
   csvData: CsvData;
@@ -139,6 +140,10 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
           return resolvedRef ? [resolvedRef] : null;
         }
         return null;
+      case 'blocks':
+      case 'global_field':
+        // For blocks and global fields, we'll handle the structure in the main transform function
+        return value;
       default:
         return value;
     }
@@ -247,18 +252,29 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         };
       }
 
-      // Transform row data according to field mapping
-      const entryData: any = {
+      // Initialize entry data with title
+      let entryData: any = {
         title: rowData[fieldMapping.find(m => m.contentstackField === 'title')?.csvColumn || ''] || `Entry ${rowIndex + 1}`
       };
 
-      // Process each field mapping, including reference resolution
+      // Process each field mapping, including nested field handling
       for (const mapping of fieldMapping) {
         const csvValue = rowData[mapping.csvColumn];
         if (csvValue !== undefined && csvValue !== '') {
-          const transformedValue = await transformValue(csvValue, mapping);
-          if (transformedValue !== null) {
-            entryData[mapping.contentstackField] = transformedValue;
+          const fieldPath = mapping.contentstackField;
+          
+          if (fieldPath.includes('.')) {
+            // Handle nested fields (blocks or global fields)
+            const transformedValue = await transformNestedValue(csvValue, fieldPath, mapping, transformValue);
+            if (transformedValue !== null) {
+              entryData = mergeNestedData(entryData, transformedValue, fieldPath);
+            }
+          } else {
+            // Handle simple fields
+            const transformedValue = await transformValue(csvValue, mapping);
+            if (transformedValue !== null) {
+              entryData[mapping.contentstackField] = transformedValue;
+            }
           }
         }
       }
@@ -555,7 +571,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
           Import Data
         </CardTitle>
         <CardDescription>
-          Execute the import process and monitor progress
+          Execute the import process and monitor progress (supports nested fields from modular blocks and global fields)
         </CardDescription>
       </CardHeader>
       <CardContent>

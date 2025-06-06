@@ -5,8 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ContentstackConfig, FieldMapping as FieldMappingType, ContentstackField } from '@/types/contentstack';
+import { ContentstackConfig, FieldMapping as FieldMappingType, FlattenedField } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
+import { flattenContentstackFields, getFieldType } from '@/utils/fieldUtils';
 
 interface FieldMappingProps {
   csvHeaders: string[];
@@ -16,15 +17,16 @@ interface FieldMappingProps {
 
 const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappingComplete }) => {
   const [mapping, setMapping] = useState<FieldMappingType[]>([]);
-  const [contentstackFields, setContentstackFields] = useState<ContentstackField[]>([]);
+  const [flattenedFields, setFlattenedFields] = useState<FlattenedField[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
     if (config.schema) {
-      // Use uploaded schema
-      setContentstackFields(config.schema);
-      initializeMapping(config.schema);
+      // Use uploaded schema and flatten it
+      const flattened = flattenContentstackFields(config.schema);
+      setFlattenedFields(flattened);
+      initializeMapping(flattened);
       setIsLoading(false);
     } else {
       // Fallback to API fetch
@@ -32,20 +34,23 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
     }
   }, []);
 
-  const initializeMapping = (fields: ContentstackField[]) => {
+  const initializeMapping = (fields: FlattenedField[]) => {
     const initialMapping = csvHeaders.map(header => {
-      // Try to find a matching field by name or display name
+      // Try to find a matching field by name, display name, or path
       const matchingField = fields.find(field => 
         field.uid.toLowerCase() === header.toLowerCase() ||
-        field.display_name.toLowerCase() === header.toLowerCase()
+        field.display_name.toLowerCase() === header.toLowerCase() ||
+        field.fieldPath.toLowerCase() === header.toLowerCase()
       );
       
       return {
         csvColumn: header,
-        contentstackField: matchingField ? matchingField.uid : '__skip__',
+        contentstackField: matchingField ? matchingField.fieldPath : '__skip__',
         fieldType: matchingField ? getFieldType(matchingField.data_type) : 'text' as const,
         isRequired: matchingField ? matchingField.mandatory : false,
-        referenceContentType: matchingField?.data_type === 'reference' ? matchingField.reference_to?.[0] : undefined
+        referenceContentType: matchingField?.data_type === 'reference' ? matchingField.reference_to?.[0] : undefined,
+        blockType: matchingField?.blockType,
+        parentField: matchingField?.parentField
       };
     });
     
@@ -54,7 +59,7 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
 
   const fetchContentstackFields = async () => {
     try {
-      const response = await fetch(`https://${config.host}/v3/content_types/${config.contentType}`, {
+      const response = await fetch(`${config.host}/v3/content_types/${config.contentType}`, {
         headers: {
           'api_key': config.apiKey,
           'authorization': config.managementToken,
@@ -68,9 +73,10 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
 
       const data = await response.json();
       const fields = data.content_type.schema || [];
+      const flattened = flattenContentstackFields(fields);
       
-      setContentstackFields(fields);
-      initializeMapping(fields);
+      setFlattenedFields(flattened);
+      initializeMapping(flattened);
       setIsLoading(false);
     } catch (error) {
       toast({
@@ -88,10 +94,12 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
     
     // Auto-detect field type and requirements based on Contentstack field
     if (field === 'contentstackField') {
-      const csField = contentstackFields.find(f => f.uid === value);
+      const csField = flattenedFields.find(f => f.fieldPath === value);
       if (csField) {
         newMapping[index].fieldType = getFieldType(csField.data_type);
         newMapping[index].isRequired = csField.mandatory;
+        newMapping[index].blockType = csField.blockType;
+        newMapping[index].parentField = csField.parentField;
         if (csField.data_type === 'reference' && csField.reference_to) {
           newMapping[index].referenceContentType = csField.reference_to[0];
         }
@@ -99,17 +107,6 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
     }
     
     setMapping(newMapping);
-  };
-
-  const getFieldType = (dataType: string): FieldMappingType['fieldType'] => {
-    switch (dataType) {
-      case 'number': return 'number';
-      case 'boolean': return 'boolean';
-      case 'isodate': return 'date';
-      case 'reference': return 'reference';
-      case 'file': return 'file';
-      default: return 'text';
-    }
   };
 
   const handleSubmit = () => {
@@ -129,6 +126,21 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
       title: "Field Mapping Complete",
       description: `Successfully mapped ${validMapping.length} fields`
     });
+  };
+
+  const getFieldDisplayInfo = (field: FlattenedField) => {
+    let displayText = field.display_name;
+    let typeInfo = field.data_type;
+    
+    if (field.blockType) {
+      typeInfo += ` (block: ${field.blockType})`;
+    }
+    
+    if (field.parentField) {
+      typeInfo += ` (nested)`;
+    }
+    
+    return { displayText, typeInfo };
   };
 
   if (isLoading) {
@@ -152,10 +164,10 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
           Field Mapping
         </CardTitle>
         <CardDescription>
-          Map your CSV columns to Contentstack fields
+          Map your CSV columns to Contentstack fields (including nested fields from modular blocks and global fields)
           {config.schema && (
             <span className="block text-green-600 text-sm mt-1">
-              ✓ Using uploaded schema with {config.schema.length} fields
+              ✓ Using uploaded schema with {flattenedFields.length} fields (including nested)
             </span>
           )}
         </CardDescription>
@@ -180,14 +192,22 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
                       <SelectTrigger>
                         <SelectValue placeholder="Select field" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-60 overflow-y-auto">
                         <SelectItem value="__skip__">-- Skip this column --</SelectItem>
-                        {contentstackFields.map(field => (
-                          <SelectItem key={field.uid} value={field.uid}>
-                            {field.display_name} ({field.data_type})
-                            {field.mandatory && <span className="text-red-500"> *</span>}
-                          </SelectItem>
-                        ))}
+                        {flattenedFields.map(field => {
+                          const { displayText, typeInfo } = getFieldDisplayInfo(field);
+                          return (
+                            <SelectItem key={field.fieldPath} value={field.fieldPath}>
+                              <div className="flex flex-col">
+                                <span>{displayText}</span>
+                                <span className="text-xs text-gray-500">
+                                  {field.fieldPath} ({typeInfo})
+                                  {field.mandatory && <span className="text-red-500"> *</span>}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                   </div>
@@ -211,6 +231,14 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
                       placeholder="Enter referenced content type UID"
                       className="mt-1"
                     />
+                  </div>
+                )}
+                
+                {mapping[index]?.blockType && (
+                  <div className="mt-3">
+                    <div className="text-sm text-blue-600">
+                      ℹ️ This field is part of a modular block: <strong>{mapping[index].blockType}</strong>
+                    </div>
                   </div>
                 )}
               </div>
