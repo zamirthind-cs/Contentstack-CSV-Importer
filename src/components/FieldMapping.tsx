@@ -260,10 +260,12 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
                       </SelectTrigger>
                       <SelectContent className="max-h-60 overflow-y-auto">
                         <SelectItem value="__skip__">-- Skip this column --</SelectItem>
-                        {flattenedFields.map(field => {
+                        {flattenedFields.map((field, fieldIndex) => {
                           const { displayText, typeInfo } = getFieldDisplayInfo(field);
+                          // Use a combination of fieldPath and index to ensure uniqueness
+                          const uniqueKey = `${field.fieldPath}-${fieldIndex}`;
                           return (
-                            <SelectItem key={field.fieldPath} value={field.fieldPath}>
+                            <SelectItem key={uniqueKey} value={field.fieldPath}>
                               <div className="flex flex-col">
                                 <span>{displayText}</span>
                                 <span className="text-xs text-gray-500">
