@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -91,6 +90,27 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     return false;
   };
 
+  const validateReferenceFields = (entryData: any): { hasIssues: boolean; issues: string[] } => {
+    const issues: string[] = [];
+    const referenceFields = fieldMapping.filter(m => m.fieldType === 'reference');
+    
+    referenceFields.forEach(refField => {
+      const refValue = entryData[refField.contentstackField];
+      if (refValue && Array.isArray(refValue) && refValue.length > 0) {
+        const uid = refValue[0].uid;
+        if (!uid || uid.trim() === '') {
+          issues.push(`Reference field '${refField.contentstackField}' has empty UID`);
+        } else {
+          // Note: We're not actually checking if the referenced entry exists in Contentstack
+          // This would require additional API calls which might be expensive
+          issues.push(`Reference field '${refField.contentstackField}' points to '${uid}' (not verified if exists)`);
+        }
+      }
+    });
+    
+    return { hasIssues: issues.length > 0, issues };
+  };
+
   const createOrUpdateEntry = async (rowData: Record<string, string>, rowIndex: number): Promise<ImportResult> => {
     try {
       if (shouldStop) {
@@ -115,6 +135,9 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
       console.log('Processing entry:', entryData);
 
+      // Validate reference fields and provide detailed feedback
+      const { hasIssues, issues } = validateReferenceFields(entryData);
+
       // Check if entry already exists
       const existingEntryUid = await checkEntryExists(entryData);
       
@@ -134,11 +157,15 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
             const existingEntry = existingData.entry;
 
             if (!hasNewFields(existingEntry, entryData)) {
+              let message = 'Entry exists with no new fields to update';
+              if (hasIssues) {
+                message += `. Reference field warnings: ${issues.join(', ')}`;
+              }
               return {
                 rowIndex,
                 success: true,
                 entryUid: existingEntryUid,
-                error: 'Entry exists with no new fields - skipped'
+                error: message
               };
             }
 
@@ -183,12 +210,17 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
               }
             }
 
+            let message = 'Entry updated with new fields';
+            if (hasIssues) {
+              message += `. Reference field warnings: ${issues.join(', ')}`;
+            }
+
             return {
               rowIndex,
               success: true,
               entryUid: existingEntryUid,
               published,
-              error: 'Entry updated with new fields'
+              error: message
             };
           }
         } catch (error) {
@@ -196,11 +228,16 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         }
       }
 
-      // Entry doesn't exist, skip it (as per requirements)
+      // Entry doesn't exist - provide specific feedback about why we're not creating it
+      let message = `Entry with title "${entryData.title}" does not exist in Contentstack - skipped (policy: do not create new entries)`;
+      if (hasIssues) {
+        message += `. Reference field issues that would have prevented creation: ${issues.join(', ')}`;
+      }
+
       return {
         rowIndex,
         success: true,
-        error: 'Entry does not exist - skipped (not creating new entries)'
+        error: message
       };
 
     } catch (error) {
@@ -247,7 +284,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     const successCount = importResults.filter(r => r.success).length;
     const publishedCount = importResults.filter(r => r.published).length;
     const updatedCount = importResults.filter(r => r.success && r.error?.includes('updated')).length;
-    const skippedCount = importResults.filter(r => r.success && r.error?.includes('skipped')).length;
+    const skippedCount = importResults.filter(r => r.success && (r.error?.includes('skipped') || r.error?.includes('no new fields'))).length;
 
     toast({
       title: "Import Complete",
@@ -270,7 +307,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   const errorCount = results.filter(r => !r.success).length;
   const publishedCount = results.filter(r => r.published).length;
   const updatedCount = results.filter(r => r.success && r.error?.includes('updated')).length;
-  const skippedCount = results.filter(r => r.success && r.error?.includes('skipped')).length;
+  const skippedCount = results.filter(r => r.success && (r.error?.includes('skipped') || r.error?.includes('no new fields'))).length;
 
   return (
     <Card>
@@ -360,29 +397,32 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
             <div className="max-h-60 overflow-y-auto border rounded-lg">
               <div className="p-4 space-y-2">
                 {results.map((result, index) => (
-                  <div key={index} className={`flex justify-between items-center p-2 rounded ${
+                  <div key={index} className={`flex justify-between items-start p-3 rounded ${
                     result.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                   } border`}>
-                    <span className="text-sm">Row {result.rowIndex + 1}</span>
-                    <div className="flex items-center gap-2">
-                      {result.success ? (
-                        <>
-                          <Badge variant="default" className="bg-green-600 text-xs">Success</Badge>
-                          {result.published && (
-                            <Badge variant="secondary" className="text-xs">Published</Badge>
-                          )}
-                          {result.entryUid && (
-                            <span className="text-xs text-gray-500">{result.entryUid}</span>
-                          )}
-                          {result.error && (
-                            <span className="text-xs text-blue-600">{result.error}</span>
-                          )}
-                        </>
-                      ) : (
-                        <>
+                    <span className="text-sm font-medium">Row {result.rowIndex + 1}</span>
+                    <div className="flex flex-col items-end gap-1 max-w-2xl">
+                      <div className="flex items-center gap-2">
+                        {result.success ? (
+                          <>
+                            <Badge variant="default" className="bg-green-600 text-xs">Success</Badge>
+                            {result.published && (
+                              <Badge variant="secondary" className="text-xs">Published</Badge>
+                            )}
+                            {result.entryUid && (
+                              <span className="text-xs text-gray-500">{result.entryUid}</span>
+                            )}
+                          </>
+                        ) : (
                           <Badge variant="destructive" className="text-xs">Error</Badge>
-                          <span className="text-xs text-red-600">{result.error}</span>
-                        </>
+                        )}
+                      </div>
+                      {result.error && (
+                        <span className={`text-xs text-right leading-relaxed ${
+                          result.success ? 'text-blue-600' : 'text-red-600'
+                        }`}>
+                          {result.error}
+                        </span>
                       )}
                     </div>
                   </div>
