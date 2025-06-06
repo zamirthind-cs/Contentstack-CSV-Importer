@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,7 +32,33 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   const [currentRow, setCurrentRow] = useState(0);
   const [results, setResults] = useState<ImportResult[]>([]);
   const [shouldStop, setShouldStop] = useState(false);
+  const [orgName, setOrgName] = useState<string>('destination stack');
   const { toast } = useToast();
+
+  const getOrganizationName = async (): Promise<string> => {
+    try {
+      const response = await fetch(`https://${config.host}/v3/user`, {
+        headers: {
+          'api_key': config.apiKey,
+          'authorization': config.managementToken,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const orgName = data.user?.organizations?.[0]?.name || 'destination stack';
+        secureLogger.info(`Connected to organization: ${orgName}`);
+        return orgName;
+      } else {
+        secureLogger.warning('Failed to retrieve organization name, using default');
+        return 'destination stack';
+      }
+    } catch (error) {
+      secureLogger.warning('Error retrieving organization name', { error: error instanceof Error ? error.message : 'Unknown error' });
+      return 'destination stack';
+    }
+  };
 
   const transformValue = (value: string, fieldType: FieldMapping['fieldType']): any => {
     if (!value || value.trim() === '') return null;
@@ -50,14 +77,14 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     }
   };
 
-  const checkEntryExists = async (entryData: any): Promise<string | null> => {
+  const checkEntryExists = async (entryData: any): Promise<{ exists: boolean; uid?: string; entry?: any }> => {
     try {
       const titleField = fieldMapping.find(m => m.contentstackField === 'title');
       const titleValue = titleField ? entryData[titleField.contentstackField] : null;
       
       if (!titleValue) {
         secureLogger.warning('No title field found for entry existence check');
-        return null;
+        return { exists: false };
       }
 
       secureLogger.info(`Checking if entry exists with title: ${titleValue}`);
@@ -73,34 +100,50 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       if (response.ok) {
         const data = await response.json();
         if (data.entries && data.entries.length > 0) {
-          secureLogger.success(`Entry found: ${data.entries[0].uid}`);
-          return data.entries[0].uid;
+          secureLogger.success(`Entry found in ${orgName}: ${data.entries[0].uid}`);
+          return { exists: true, uid: data.entries[0].uid, entry: data.entries[0] };
         } else {
-          secureLogger.info('Entry not found in destination stack');
+          secureLogger.info(`Entry "${titleValue}" not found in ${orgName}`);
+          return { exists: false };
         }
       } else {
-        secureLogger.error(`API error checking entry existence: ${response.status}`, {
-          status: response.status,
-          statusText: response.statusText
-        });
+        const errorData = await response.json();
+        if (response.status === 412 && errorData.error_code === 109) {
+          secureLogger.error(`API credentials invalid or stack not found: ${errorData.error_message}`);
+          throw new Error(`Invalid API credentials or stack not found: ${errorData.error_message}`);
+        } else {
+          secureLogger.error(`API error checking entry existence: ${response.status}`, {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorData
+          });
+          throw new Error(`API error: ${response.status} - ${errorData.error_message || response.statusText}`);
+        }
       }
-      
-      return null;
     } catch (error) {
       secureLogger.error('Error checking entry existence', { error: error instanceof Error ? error.message : 'Unknown error' });
-      return null;
+      throw error;
     }
   };
 
-  const hasNewFields = (existingEntry: any, newData: any): boolean => {
+  const hasEmptyFieldsToUpdate = (existingEntry: any, newData: any): { hasUpdates: boolean; fieldsToUpdate: string[] } => {
+    const fieldsToUpdate: string[] = [];
+    
     for (const [key, value] of Object.entries(newData)) {
       if (value !== null && value !== undefined && value !== '') {
-        if (!existingEntry[key] || existingEntry[key] !== value) {
-          return true;
+        const existingValue = existingEntry[key];
+        // Check if the existing field is empty/null/undefined or if it's an empty array (for references)
+        const isEmpty = !existingValue || 
+          (Array.isArray(existingValue) && existingValue.length === 0) ||
+          (typeof existingValue === 'string' && existingValue.trim() === '');
+        
+        if (isEmpty) {
+          fieldsToUpdate.push(key);
         }
       }
     }
-    return false;
+    
+    return { hasUpdates: fieldsToUpdate.length > 0, fieldsToUpdate };
   };
 
   const validateReferenceFields = (entryData: any, rowIndex: number): { hasIssues: boolean; issues: string[] } => {
@@ -116,7 +159,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
           issues.push(issue);
           secureLogger.warning(issue, { field: refField.contentstackField }, rowIndex);
         } else {
-          const issue = `Reference field '${refField.contentstackField}' points to '${uid}' (not verified if target exists in destination)`;
+          const issue = `Reference field '${refField.contentstackField}' points to '${uid}' (not verified if target exists in ${orgName})`;
           issues.push(issue);
           secureLogger.info(issue, { field: refField.contentstackField, targetUid: uid }, rowIndex);
         }
@@ -155,104 +198,94 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       const { hasIssues, issues } = validateReferenceFields(entryData, rowIndex);
 
       // Check if entry already exists
-      const existingEntryUid = await checkEntryExists(entryData);
+      const existsResult = await checkEntryExists(entryData);
       
-      if (existingEntryUid) {
-        try {
-          const getResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existingEntryUid}`, {
-            headers: {
-              'api_key': config.apiKey,
-              'authorization': config.managementToken,
-              'Content-Type': 'application/json'
-            }
-          });
+      if (existsResult.exists && existsResult.entry) {
+        const { hasUpdates, fieldsToUpdate } = hasEmptyFieldsToUpdate(existsResult.entry, entryData);
+        
+        if (!hasUpdates) {
+          let message = `Entry "${entryData.title}" exists in ${orgName} – skipped: all fields are already filled or no new data provided`;
+          if (hasIssues) {
+            message += `. Reference field warnings: ${issues.join(', ')}`;
+          }
+          secureLogger.info(message, { existingUid: existsResult.uid, fieldsChecked: Object.keys(entryData) }, rowIndex);
+          return {
+            rowIndex,
+            success: true,
+            entryUid: existsResult.uid,
+            error: message
+          };
+        }
 
-          if (getResponse.ok) {
-            const existingData = await getResponse.json();
-            const existingEntry = existingData.entry;
+        // Update existing entry with only the fields that need updating
+        const updateData: any = {};
+        fieldsToUpdate.forEach(field => {
+          updateData[field] = entryData[field];
+        });
 
-            if (!hasNewFields(existingEntry, entryData)) {
-              let message = 'Entry exists with no new fields to update - skipped';
-              if (hasIssues) {
-                message += `. Reference field warnings: ${issues.join(', ')}`;
-              }
-              secureLogger.info(message, { existingUid: existingEntryUid }, rowIndex);
-              return {
-                rowIndex,
-                success: true,
-                entryUid: existingEntryUid,
-                error: message
-              };
-            }
+        secureLogger.info(`Updating existing entry: ${existsResult.uid} in ${orgName}`, { fieldsToUpdate }, rowIndex);
+        const updateResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existsResult.uid}`, {
+          method: 'PUT',
+          headers: {
+            'api_key': config.apiKey,
+            'authorization': config.managementToken,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ entry: updateData })
+        });
 
-            // Update existing entry
-            secureLogger.info(`Updating existing entry: ${existingEntryUid}`, {}, rowIndex);
-            const updateResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existingEntryUid}`, {
-              method: 'PUT',
+        if (!updateResponse.ok) {
+          const errorData = await updateResponse.json();
+          const errorMsg = errorData.error_message || 'Failed to update entry';
+          secureLogger.error(`Update failed: ${errorMsg}`, { responseStatus: updateResponse.status }, rowIndex);
+          throw new Error(errorMsg);
+        }
+
+        let published = false;
+        if (config.shouldPublish && config.environment) {
+          try {
+            const publishResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existsResult.uid}/publish`, {
+              method: 'POST',
               headers: {
                 'api_key': config.apiKey,
                 'authorization': config.managementToken,
                 'Content-Type': 'application/json'
               },
-              body: JSON.stringify({ entry: entryData })
+              body: JSON.stringify({
+                entry: {
+                  environments: [config.environment]
+                }
+              })
             });
 
-            if (!updateResponse.ok) {
-              const errorData = await updateResponse.json();
-              const errorMsg = errorData.error_message || 'Failed to update entry';
-              secureLogger.error(`Update failed: ${errorMsg}`, { responseStatus: updateResponse.status }, rowIndex);
-              throw new Error(errorMsg);
+            if (publishResponse.ok) {
+              published = true;
+              secureLogger.success(`Entry published successfully in ${orgName}`, {}, rowIndex);
+            } else {
+              secureLogger.warning(`Publish failed but entry was updated in ${orgName}`, { publishStatus: publishResponse.status }, rowIndex);
             }
-
-            let published = false;
-            if (config.shouldPublish && config.environment) {
-              try {
-                const publishResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existingEntryUid}/publish`, {
-                  method: 'POST',
-                  headers: {
-                    'api_key': config.apiKey,
-                    'authorization': config.managementToken,
-                    'Content-Type': 'application/json'
-                  },
-                  body: JSON.stringify({
-                    entry: {
-                      environments: [config.environment]
-                    }
-                  })
-                });
-
-                if (publishResponse.ok) {
-                  published = true;
-                  secureLogger.success(`Entry published successfully`, {}, rowIndex);
-                } else {
-                  secureLogger.warning(`Publish failed but entry was updated`, { publishStatus: publishResponse.status }, rowIndex);
-                }
-              } catch (publishError) {
-                secureLogger.warning('Failed to publish updated entry', { error: publishError instanceof Error ? publishError.message : 'Unknown error' }, rowIndex);
-              }
-            }
-
-            let message = 'Entry updated with new fields';
-            if (hasIssues) {
-              message += `. Reference field warnings: ${issues.join(', ')}`;
-            }
-
-            secureLogger.success(message, { updatedUid: existingEntryUid, published }, rowIndex);
-            return {
-              rowIndex,
-              success: true,
-              entryUid: existingEntryUid,
-              published,
-              error: message
-            };
+          } catch (publishError) {
+            secureLogger.warning(`Failed to publish updated entry in ${orgName}`, { error: publishError instanceof Error ? publishError.message : 'Unknown error' }, rowIndex);
           }
-        } catch (error) {
-          secureLogger.error('Error fetching existing entry for comparison', { error: error instanceof Error ? error.message : 'Unknown error' }, rowIndex);
         }
+
+        let message = `Entry "${entryData.title}" updated${published ? ' and published' : ''} in ${orgName} – ${fieldsToUpdate.length} fields populated`;
+        if (hasIssues) {
+          message += `. Reference field warnings: ${issues.join(', ')}`;
+        }
+
+        secureLogger.success(message, { updatedUid: existsResult.uid, published, fieldsUpdated: fieldsToUpdate }, rowIndex);
+        return {
+          rowIndex,
+          success: true,
+          entryUid: existsResult.uid,
+          published,
+          error: message
+        };
       }
 
       // Entry doesn't exist - provide specific feedback
-      let message = `Entry with title "${entryData.title}" does not exist in destination Contentstack - skipped (policy: do not create new entries)`;
+      let message = `Entry "${entryData.title}" does not exist in ${orgName} – skipped (policy: do not create new entries)`;
       if (hasIssues) {
         message += `. Reference field issues that would have prevented creation: ${issues.join(', ')}`;
       }
@@ -283,7 +316,12 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     setShouldStop(false);
 
     secureLogger.clearLogs();
-    secureLogger.info(`Starting import process for ${csvData.rows.length} rows`);
+    
+    // Get organization name first
+    const retrievedOrgName = await getOrganizationName();
+    setOrgName(retrievedOrgName);
+    
+    secureLogger.info(`Starting import process for ${csvData.rows.length} rows to ${retrievedOrgName}`);
 
     const importResults: ImportResult[] = [];
     const totalRows = csvData.rows.length;
@@ -314,7 +352,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     const updatedCount = importResults.filter(r => r.success && r.error?.includes('updated')).length;
     const skippedCount = importResults.filter(r => r.success && (r.error?.includes('skipped') || r.error?.includes('no new fields'))).length;
 
-    secureLogger.success(`Import completed: ${importResults.length}/${totalRows} processed, ${updatedCount} updated, ${skippedCount} skipped, ${publishedCount} published`);
+    secureLogger.success(`Import completed to ${retrievedOrgName}: ${importResults.length}/${totalRows} processed, ${updatedCount} updated, ${skippedCount} skipped, ${publishedCount} published`);
 
     toast({
       title: "Import Complete",
