@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +19,7 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
   const [mapping, setMapping] = useState<FieldMappingType[]>([]);
   const [flattenedFields, setFlattenedFields] = useState<FlattenedField[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchWarnings, setFetchWarnings] = useState<string[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -31,23 +33,40 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
   }, []);
 
   const initializeFromSchema = async () => {
+    const warnings: string[] = [];
     try {
       if (config.schema) {
+        console.log('Starting async field flattening with uploaded schema...');
         // Use async flattening to handle global fields that need to be fetched
         const flattened = await flattenContentstackFields(config.schema, '', '', {
           apiKey: config.apiKey,
           managementToken: config.managementToken,
           host: config.host
         });
+        
+        // Check for any global fields that couldn't be fully processed
+        const globalFieldsWithIssues = flattened.filter(f => 
+          f.data_type === 'global_field' && 
+          (f.display_name.includes('schema unavailable') || f.display_name.includes('fetch error'))
+        );
+        
+        if (globalFieldsWithIssues.length > 0) {
+          warnings.push(`Some global fields couldn't be fetched: ${globalFieldsWithIssues.map(f => f.uid).join(', ')}`);
+        }
+        
+        console.log(`Field flattening complete. Found ${flattened.length} total fields`);
         setFlattenedFields(flattened);
+        setFetchWarnings(warnings);
         initializeMapping(flattened);
       }
     } catch (error) {
       console.warn('Error during async field flattening, falling back to sync:', error);
+      warnings.push('Global field fetching failed, using local schema only');
       // Fallback to sync version if async fails
       if (config.schema) {
         const flattened = flattenContentstackFieldsSync(config.schema);
         setFlattenedFields(flattened);
+        setFetchWarnings(warnings);
         initializeMapping(flattened);
       }
     } finally {
@@ -176,6 +195,7 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
         <CardContent className="p-12 text-center">
           <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
           <p>Loading content type schema...</p>
+          <p className="text-sm text-gray-500 mt-2">Fetching global field schemas...</p>
         </CardContent>
       </Card>
     );
@@ -196,6 +216,14 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
             <span className="block text-green-600 text-sm mt-1">
               ✓ Using uploaded schema with {flattenedFields.length} fields (including nested)
             </span>
+          )}
+          {fetchWarnings.length > 0 && (
+            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+              <div className="font-medium">⚠️ Warnings:</div>
+              {fetchWarnings.map((warning, index) => (
+                <div key={index} className="text-xs mt-1">• {warning}</div>
+              ))}
+            </div>
           )}
         </CardDescription>
       </CardHeader>

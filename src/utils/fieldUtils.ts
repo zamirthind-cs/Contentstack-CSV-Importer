@@ -54,6 +54,7 @@ export const flattenContentstackFields = async (
       } else if (field.reference_to && config) {
         // Need to fetch the global field schema
         try {
+          console.log(`Fetching global field schema for: ${field.reference_to}`);
           const response = await fetch(`${config.host}/v3/global_fields/${field.reference_to}`, {
             headers: {
               'api_key': config.apiKey,
@@ -65,12 +66,41 @@ export const flattenContentstackFields = async (
           if (response.ok) {
             const data = await response.json();
             globalFieldSchema = data.global_field?.schema || [];
+            console.log(`Successfully fetched schema for ${field.reference_to}, found ${globalFieldSchema.length} fields`);
           } else {
-            console.warn(`Failed to fetch global field schema for: ${field.reference_to}`);
+            console.warn(`Failed to fetch global field schema for: ${field.reference_to}, status: ${response.status}`);
+            // Add the global field itself as a basic field so it can still be mapped
+            flattened.push({
+              uid: field.uid,
+              display_name: `${field.display_name} (global field - schema unavailable)`,
+              data_type: 'global_field',
+              mandatory: field.mandatory,
+              fieldPath,
+              parentField: parentField || undefined
+            });
           }
         } catch (error) {
           console.warn(`Error fetching global field schema for ${field.reference_to}:`, error);
+          // Add the global field itself as a basic field so it can still be mapped
+          flattened.push({
+            uid: field.uid,
+            display_name: `${field.display_name} (global field - fetch error)`,
+            data_type: 'global_field',
+            mandatory: field.mandatory,
+            fieldPath,
+            parentField: parentField || undefined
+          });
         }
+      } else {
+        // No schema and no config to fetch - add as basic field
+        flattened.push({
+          uid: field.uid,
+          display_name: `${field.display_name} (global field - no schema)`,
+          data_type: 'global_field',
+          mandatory: field.mandatory,
+          fieldPath,
+          parentField: parentField || undefined
+        });
       }
       
       if (globalFieldSchema.length > 0) {
