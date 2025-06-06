@@ -37,7 +37,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
   const getOrganizationName = async (): Promise<string> => {
     try {
-      const response = await fetch(`https://${config.host}/v3/user`, {
+      const response = await fetch(`${config.host}/v3/user`, {
         headers: {
           'api_key': config.apiKey,
           'authorization': config.managementToken,
@@ -78,7 +78,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     try {
       secureLogger.info(`Resolving reference: ${contentTypeUid} -> "${titleValue}"`);
       
-      const response = await fetch(`https://${config.host}/v3/content_types/${contentTypeUid}/entries?query={"title":"${titleValue}"}`, {
+      const response = await fetch(`${config.host}/v3/content_types/${contentTypeUid}/entries?query={"title":"${titleValue}"}`, {
         headers: {
           'api_key': config.apiKey,
           'authorization': config.managementToken,
@@ -156,7 +156,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
       secureLogger.info(`Checking if entry exists with title: ${titleValue}`);
 
-      const response = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries?query={"title":"${titleValue}"}`, {
+      const response = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries?query={"title":"${titleValue}"}`, {
         headers: {
           'api_key': config.apiKey,
           'authorization': config.managementToken,
@@ -295,7 +295,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         });
 
         secureLogger.info(`Updating existing entry: ${existsResult.uid} in ${orgName}`, { fieldsToUpdate }, rowIndex);
-        const updateResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existsResult.uid}`, {
+        const updateResponse = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries/${existsResult.uid}`, {
           method: 'PUT',
           headers: {
             'api_key': config.apiKey,
@@ -340,7 +340,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
             secureLogger.info(`Publishing entry with references: ${existsResult.uid}`, { publishPayload }, rowIndex);
 
-            const publishResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existsResult.uid}/publish`, {
+            const publishResponse = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries/${existsResult.uid}/publish`, {
               method: 'POST',
               headers: {
                 'api_key': config.apiKey,
@@ -380,7 +380,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       // Entry doesn't exist - create it
       secureLogger.info(`Entry "${entryData.title}" not found in ${orgName} – creating new entry`);
 
-      const createResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries`, {
+      const createResponse = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries`, {
         method: 'POST',
         headers: {
           'api_key': config.apiKey,
@@ -425,7 +425,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
           secureLogger.info(`Publishing created entry with references: ${createdEntry.uid}`, { publishPayload }, rowIndex);
 
-          const publishResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${createdEntry.uid}/publish`, {
+          const publishResponse = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries/${createdEntry.uid}/publish`, {
             method: 'POST',
             headers: {
               'api_key': config.apiKey,
