@@ -315,9 +315,34 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
           throw new Error(errorMsg);
         }
 
+        const updatedEntryResponse = await updateResponse.json();
+        const updatedEntry = updatedEntryResponse.entry;
+
         let published = false;
         if (config.shouldPublish && config.environment) {
           try {
+            // Create publish payload with the complete entry data including references
+            const publishPayload: any = {
+              entry: {
+                environments: [config.environment]
+              }
+            };
+
+            // Add reference data to publish payload if the entry has references
+            const referenceFields = fieldMapping.filter(m => m.fieldType === 'reference');
+            if (referenceFields.length > 0) {
+              publishPayload.entry = {
+                ...publishPayload.entry,
+                ...Object.fromEntries(
+                  referenceFields
+                    .filter(field => updatedEntry[field.contentstackField])
+                    .map(field => [field.contentstackField, updatedEntry[field.contentstackField]])
+                )
+              };
+            }
+
+            secureLogger.info(`Publishing entry with references: ${existsResult.uid}`, { publishPayload }, rowIndex);
+
             const publishResponse = await fetch(`https://${config.host}/v3/content_types/${config.contentType}/entries/${existsResult.uid}/publish`, {
               method: 'POST',
               headers: {
@@ -325,18 +350,15 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
                 'authorization': config.managementToken,
                 'Content-Type': 'application/json'
               },
-              body: JSON.stringify({
-                entry: {
-                  environments: [config.environment]
-                }
-              })
+              body: JSON.stringify(publishPayload)
             });
 
             if (publishResponse.ok) {
               published = true;
               secureLogger.success(`Entry published successfully in ${orgName}`, {}, rowIndex);
             } else {
-              secureLogger.warning(`Publish failed but entry was updated in ${orgName}`, { publishStatus: publishResponse.status }, rowIndex);
+              const publishError = await publishResponse.json();
+              secureLogger.warning(`Publish failed but entry was updated in ${orgName}: ${publishError.error_message || 'Unknown publish error'}`, { publishStatus: publishResponse.status, publishError }, rowIndex);
             }
           } catch (publishError) {
             secureLogger.warning(`Failed to publish updated entry in ${orgName}`, { error: publishError instanceof Error ? publishError.message : 'Unknown error' }, rowIndex);
