@@ -1,3 +1,4 @@
+
 import { ContentstackField, FlattenedField, BlockSchema } from '@/types/contentstack';
 
 export const flattenContentstackFields = async (
@@ -242,20 +243,25 @@ export const transformNestedValue = async (
 };
 
 export const mergeNestedData = (existingData: any, newData: any, fieldPath: string): any => {
+  console.log(`🔄 MERGE DEBUG: Starting merge for fieldPath: ${fieldPath}`);
+  console.log(`🔄 MERGE DEBUG: Existing data:`, JSON.stringify(existingData, null, 2));
+  console.log(`🔄 MERGE DEBUG: New data:`, JSON.stringify(newData, null, 2));
+  
   const pathParts = fieldPath.split('.');
   const result = { ...existingData };
   
   if (pathParts.length === 1) {
     // Simple field
+    console.log(`🔄 MERGE DEBUG: Simple field assignment`);
     result[pathParts[0]] = newData;
   } else if (newData.isGlobalFieldBlock) {
     // Global field with modular blocks: globalField.modular_blocks.blockType.fieldName
+    console.log(`🔄 MERGE DEBUG: Global field block processing`);
     const globalFieldName = newData.globalFieldName;
     const blockType = newData.blockType;
     const fieldName = newData.fieldName;
     
     if (!result[globalFieldName] || typeof result[globalFieldName] === 'string') {
-      // If the global field doesn't exist or is a string, initialize it as an object
       result[globalFieldName] = {};
     }
     
@@ -263,45 +269,49 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
       result[globalFieldName].modular_blocks = [];
     }
     
-    // Find existing block or create new one
     let existingBlock = result[globalFieldName].modular_blocks.find((block: any) => block[blockType]);
     if (!existingBlock) {
       existingBlock = { [blockType]: {} };
       result[globalFieldName].modular_blocks.push(existingBlock);
     }
     
-    // Set the field value
     existingBlock[blockType][fieldName] = newData.value;
   } else if (pathParts.length === 3 && newData.blockType) {
     // Direct modular block field: fieldName.blockType.fieldName
+    console.log(`🔄 MERGE DEBUG: Direct modular block processing`);
     const [fieldName, blockType, blockFieldName] = pathParts;
     
     if (!result[fieldName]) {
       result[fieldName] = [];
     }
     
-    // Find existing block or create new one
     let existingBlock = result[fieldName].find((block: any) => Object.keys(block)[0] === blockType);
     if (!existingBlock) {
       existingBlock = { [blockType]: {} };
       result[fieldName].push(existingBlock);
     }
     
-    // Set the field value
     existingBlock[blockType][blockFieldName] = newData.value;
   } else if (pathParts.length >= 2 && newData.isGlobalField) {
     // Global field: globalFieldName.fieldName (can be deeper)
+    console.log(`🔄 MERGE DEBUG: Global field nested processing`);
     const globalFieldName = newData.globalFieldName;
     const nestedPath = newData.nestedPath;
     
+    console.log(`🔄 MERGE DEBUG: Global field name: ${globalFieldName}`);
+    console.log(`🔄 MERGE DEBUG: Nested path:`, nestedPath);
+    
     if (!result[globalFieldName] || typeof result[globalFieldName] === 'string') {
-      // If the global field doesn't exist or is a string, initialize it as an object
+      console.log(`🔄 MERGE DEBUG: Initializing global field as object`);
       result[globalFieldName] = {};
     }
     
     // Build the nested structure
     let current = result[globalFieldName];
+    console.log(`🔄 MERGE DEBUG: Starting nested path traversal`);
+    
     for (let i = 0; i < nestedPath.length - 1; i++) {
+      console.log(`🔄 MERGE DEBUG: Processing nested path part: ${nestedPath[i]}`);
       if (!current[nestedPath[i]]) {
         current[nestedPath[i]] = {};
       }
@@ -309,8 +319,13 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
     }
     
     // Set the final value
-    current[nestedPath[nestedPath.length - 1]] = newData.value;
+    const finalKey = nestedPath[nestedPath.length - 1];
+    console.log(`🔄 MERGE DEBUG: Setting final value for key: ${finalKey}`);
+    current[finalKey] = newData.value;
+    
+    console.log(`🔄 MERGE DEBUG: Final global field structure:`, JSON.stringify(result[globalFieldName], null, 2));
   }
   
+  console.log(`🔄 MERGE DEBUG: Final merged result:`, JSON.stringify(result, null, 2));
   return result;
 };
