@@ -47,11 +47,19 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
         // Check for any global fields that couldn't be fully processed
         const globalFieldsWithIssues = flattened.filter(f => 
           f.data_type === 'global_field' && 
-          (f.display_name.includes('schema unavailable') || f.display_name.includes('fetch error'))
+          (f.display_name.includes('invalid credentials') || 
+           f.display_name.includes('not found') || 
+           f.display_name.includes('unauthorized') ||
+           f.display_name.includes('network error') ||
+           f.display_name.includes('no config'))
         );
         
         if (globalFieldsWithIssues.length > 0) {
-          warnings.push(`Some global fields couldn't be fetched: ${globalFieldsWithIssues.map(f => f.uid).join(', ')}`);
+          const issueDetails = globalFieldsWithIssues.map(f => {
+            const issue = f.display_name.match(/\(global field - (.+)\)/)?.[1] || 'unknown error';
+            return `${f.uid}: ${issue}`;
+          });
+          warnings.push(`Global field issues: ${issueDetails.join(', ')}`);
         }
         
         console.log(`Field flattening complete. Found ${flattened.length} total fields`);
@@ -218,11 +226,14 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
             </span>
           )}
           {fetchWarnings.length > 0 && (
-            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-              <div className="font-medium">⚠️ Warnings:</div>
+            <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded text-sm">
+              <div className="font-medium text-amber-800 mb-2">⚠️ Global Field Access Issues:</div>
               {fetchWarnings.map((warning, index) => (
-                <div key={index} className="text-xs mt-1">• {warning}</div>
+                <div key={index} className="text-xs text-amber-700 mb-1">• {warning}</div>
               ))}
+              <div className="text-xs text-amber-700 mt-2 p-2 bg-amber-100 rounded">
+                💡 <strong>Tip:</strong> Check your API credentials and ensure the global fields exist and are accessible with your management token.
+              </div>
             </div>
           )}
         </CardDescription>

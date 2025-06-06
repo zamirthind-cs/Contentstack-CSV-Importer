@@ -68,11 +68,23 @@ export const flattenContentstackFields = async (
             globalFieldSchema = data.global_field?.schema || [];
             console.log(`Successfully fetched schema for ${field.reference_to}, found ${globalFieldSchema.length} fields`);
           } else {
-            console.warn(`Failed to fetch global field schema for: ${field.reference_to}, status: ${response.status}`);
-            // Add the global field itself as a basic field so it can still be mapped
+            const errorText = await response.text();
+            console.warn(`Failed to fetch global field schema for: ${field.reference_to}, status: ${response.status}, error: ${errorText}`);
+            
+            // Add a more descriptive error message based on status code
+            let errorDescription = 'schema unavailable';
+            if (response.status === 422) {
+              errorDescription = 'invalid credentials or field not accessible';
+            } else if (response.status === 404) {
+              errorDescription = 'global field not found';
+            } else if (response.status === 401) {
+              errorDescription = 'unauthorized access';
+            }
+            
+            // Still add the global field itself as a basic field
             flattened.push({
               uid: field.uid,
-              display_name: `${field.display_name} (global field - schema unavailable)`,
+              display_name: `${field.display_name} (global field - ${errorDescription})`,
               data_type: 'global_field',
               mandatory: field.mandatory,
               fieldPath,
@@ -80,11 +92,11 @@ export const flattenContentstackFields = async (
             });
           }
         } catch (error) {
-          console.warn(`Error fetching global field schema for ${field.reference_to}:`, error);
+          console.warn(`Network error fetching global field schema for ${field.reference_to}:`, error);
           // Add the global field itself as a basic field so it can still be mapped
           flattened.push({
             uid: field.uid,
-            display_name: `${field.display_name} (global field - fetch error)`,
+            display_name: `${field.display_name} (global field - network error)`,
             data_type: 'global_field',
             mandatory: field.mandatory,
             fieldPath,
@@ -95,7 +107,7 @@ export const flattenContentstackFields = async (
         // No schema and no config to fetch - add as basic field
         flattened.push({
           uid: field.uid,
-          display_name: `${field.display_name} (global field - no schema)`,
+          display_name: `${field.display_name} (global field - no config)`,
           data_type: 'global_field',
           mandatory: field.mandatory,
           fieldPath,
