@@ -202,9 +202,20 @@ export const transformNestedValue = async (
     return await transformValue(value, fieldMapping);
   }
   
-  // Handle nested fields (blocks or global fields)
+  // Handle modular blocks within global fields: globalField.modular_blocks.blockType.fieldName
+  if (pathParts.length === 4 && pathParts[1] === 'modular_blocks' && fieldMapping.blockType) {
+    const transformedValue = await transformValue(value, fieldMapping);
+    return {
+      isGlobalFieldBlock: true,
+      globalFieldName: pathParts[0],
+      blockType: fieldMapping.blockType,
+      fieldName: pathParts[3],
+      value: transformedValue
+    };
+  }
+  
+  // Handle direct modular blocks: fieldName.blockType.fieldName
   if (pathParts.length === 3 && fieldMapping.blockType) {
-    // This is a modular block field: fieldName.blockType.fieldName
     const transformedValue = await transformValue(value, fieldMapping);
     return {
       blockType: fieldMapping.blockType,
@@ -213,7 +224,7 @@ export const transformNestedValue = async (
     };
   }
   
-  // Handle global field nested values
+  // Handle global field nested values (non-block)
   if (pathParts.length >= 2 && !fieldMapping.blockType) {
     const transformedValue = await transformValue(value, fieldMapping);
     return {
@@ -235,8 +246,31 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
   if (pathParts.length === 1) {
     // Simple field
     result[pathParts[0]] = newData;
+  } else if (newData.isGlobalFieldBlock) {
+    // Global field with modular blocks: globalField.modular_blocks.blockType.fieldName
+    const globalFieldName = newData.globalFieldName;
+    const blockType = newData.blockType;
+    const fieldName = newData.fieldName;
+    
+    if (!result[globalFieldName]) {
+      result[globalFieldName] = {};
+    }
+    
+    if (!result[globalFieldName].modular_blocks) {
+      result[globalFieldName].modular_blocks = [];
+    }
+    
+    // Find existing block or create new one
+    let existingBlock = result[globalFieldName].modular_blocks.find((block: any) => block[blockType]);
+    if (!existingBlock) {
+      existingBlock = { [blockType]: {} };
+      result[globalFieldName].modular_blocks.push(existingBlock);
+    }
+    
+    // Set the field value
+    existingBlock[blockType][fieldName] = newData.value;
   } else if (pathParts.length === 3 && newData.blockType) {
-    // Modular block field: fieldName.blockType.fieldName
+    // Direct modular block field: fieldName.blockType.fieldName
     const [fieldName, blockType, blockFieldName] = pathParts;
     
     if (!result[fieldName]) {
@@ -250,7 +284,7 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
       result[fieldName].push(existingBlock);
     }
     
-    // Set the field value directly (not nested)
+    // Set the field value
     existingBlock[blockType][blockFieldName] = newData.value;
   } else if (pathParts.length >= 2 && newData.isGlobalField) {
     // Global field: globalFieldName.fieldName (can be deeper)
