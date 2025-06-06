@@ -203,15 +203,7 @@ export const transformNestedValue = async (
   
   // Handle modular blocks within global fields: globalField.modular_blocks.blockType.fieldName
   if (pathParts.length === 4 && pathParts[1] === 'modular_blocks' && fieldMapping.blockType) {
-    let transformedValue = await transformValue(value, fieldMapping);
-    
-    // Special handling for link fields in modular blocks
-    if (pathParts[3] === 'link' && typeof transformedValue === 'string') {
-      transformedValue = {
-        title: value, // Use the CSV value as title
-        href: value   // Use the CSV value as href
-      };
-    }
+    const transformedValue = await transformValue(value, fieldMapping);
     
     return {
       isGlobalFieldBlock: true,
@@ -224,15 +216,7 @@ export const transformNestedValue = async (
   
   // Handle direct modular blocks: fieldName.blockType.fieldName
   if (pathParts.length === 3 && fieldMapping.blockType) {
-    let transformedValue = await transformValue(value, fieldMapping);
-    
-    // Special handling for link fields in modular blocks
-    if (pathParts[2] === 'link' && typeof transformedValue === 'string') {
-      transformedValue = {
-        title: value, // Use the CSV value as title
-        href: value   // Use the CSV value as href
-      };
-    }
+    const transformedValue = await transformValue(value, fieldMapping);
     
     return {
       blockType: fieldMapping.blockType,
