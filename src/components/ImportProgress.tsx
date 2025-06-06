@@ -127,11 +127,8 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   const transformValue = async (value: string, fieldMapping: FieldMapping): Promise<any> => {
     if (!value || value.trim() === '') return null;
     
-    // Check if this is a link field by field name pattern
-    const isLinkField = fieldMapping.contentstackField.endsWith('.link') || 
-                       fieldMapping.contentstackField.includes('.link.');
-    
-    if (isLinkField) {
+    // Check if this is a link field by data type
+    if (fieldMapping.fieldType === 'link') {
       return {
         title: value,
         href: value

@@ -17,7 +17,7 @@ export interface CsvData {
 export interface FieldMapping {
   csvColumn: string;
   contentstackField: string;
-  fieldType: 'text' | 'number' | 'boolean' | 'date' | 'reference' | 'file' | 'blocks' | 'global_field';
+  fieldType: 'text' | 'number' | 'boolean' | 'date' | 'reference' | 'file' | 'blocks' | 'global_field' | 'link';
   isRequired: boolean;
   referenceContentType?: string;
   blockType?: string;

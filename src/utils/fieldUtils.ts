@@ -173,7 +173,7 @@ export const flattenContentstackFieldsSync = (fields: ContentstackField[], paren
   return flattened;
 };
 
-export const getFieldType = (dataType: string): 'text' | 'number' | 'boolean' | 'date' | 'reference' | 'file' | 'blocks' | 'global_field' => {
+export const getFieldType = (dataType: string): 'text' | 'number' | 'boolean' | 'date' | 'reference' | 'file' | 'blocks' | 'global_field' | 'link' => {
   switch (dataType) {
     case 'number': return 'number';
     case 'boolean': return 'boolean';
@@ -182,6 +182,7 @@ export const getFieldType = (dataType: string): 'text' | 'number' | 'boolean' | 
     case 'file': return 'file';
     case 'blocks': return 'blocks';
     case 'global_field': return 'global_field';
+    case 'link': return 'link';
     default: return 'text';
   }
 };
