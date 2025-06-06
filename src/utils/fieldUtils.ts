@@ -172,12 +172,14 @@ export const transformNestedValue = async (
   }
   
   // Handle global field nested values
-  if (pathParts.length >= 2) {
+  if (pathParts.length >= 2 && !fieldMapping.blockType) {
     const transformedValue = await transformValue(value, fieldMapping);
     return {
       fieldName: pathParts[pathParts.length - 1],
       value: transformedValue,
-      isGlobalField: !fieldMapping.blockType
+      isGlobalField: true,
+      globalFieldName: pathParts[0],
+      nestedPath: pathParts.slice(1)
     };
   }
   
@@ -210,7 +212,8 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
     existingBlock[blockType][blockFieldName] = newData.value;
   } else if (pathParts.length >= 2 && newData.isGlobalField) {
     // Global field: globalFieldName.fieldName (can be deeper)
-    const [globalFieldName, ...nestedPath] = pathParts;
+    const globalFieldName = newData.globalFieldName;
+    const nestedPath = newData.nestedPath;
     
     if (!result[globalFieldName]) {
       result[globalFieldName] = {};
