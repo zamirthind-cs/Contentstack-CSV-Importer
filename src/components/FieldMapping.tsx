@@ -1,12 +1,13 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
 import { ContentstackConfig, FieldMapping as FieldMappingType, FlattenedField } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
-import { flattenContentstackFields, flattenContentstackFieldsSync, getFieldType } from '@/utils/fieldUtils';
+import { flattenContentstackFields, flattenContentstackFieldsSync } from '@/utils/fieldUtils';
+import FieldMappingRow from './FieldMapping/FieldMappingRow';
+import GlobalFieldWarnings from './FieldMapping/GlobalFieldWarnings';
+import { useMappingInitializer } from './FieldMapping/useMappingInitializer';
 
 interface FieldMappingProps {
   csvHeaders: string[];
@@ -15,21 +16,19 @@ interface FieldMappingProps {
 }
 
 const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappingComplete }) => {
-  const [mapping, setMapping] = useState<FieldMappingType[]>([]);
   const [flattenedFields, setFlattenedFields] = useState<FlattenedField[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchWarnings, setFetchWarnings] = useState<string[]>([]);
   const { toast } = useToast();
+  const { mapping, initializeMapping, updateMapping } = useMappingInitializer();
 
   useEffect(() => {
     console.log('FieldMapping useEffect triggered with csvHeaders:', csvHeaders);
     console.log('Config:', config);
     
     if (config.schema) {
-      // Use uploaded schema and flatten it
       initializeFromSchema();
     } else {
-      // Fallback to API fetch
       fetchContentstackFields();
     }
   }, []);
@@ -39,7 +38,6 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
     try {
       if (config.schema) {
         console.log('Starting async field flattening with uploaded schema...');
-        // Use async flattening to handle global fields that need to be fetched
         const flattened = await flattenContentstackFields(config.schema, '', '', {
           apiKey: config.apiKey,
           managementToken: config.managementToken,
@@ -48,7 +46,6 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
         
         console.log('Flattened fields:', flattened);
         
-        // Check for any global fields that couldn't be fully processed
         const globalFieldsWithIssues = flattened.filter(f => 
           f.data_type === 'global_field' && 
           (f.display_name.includes('invalid credentials') || 
@@ -69,62 +66,21 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
         console.log(`Field flattening complete. Found ${flattened.length} total fields`);
         setFlattenedFields(flattened);
         setFetchWarnings(warnings);
-        initializeMapping(flattened);
+        initializeMapping(flattened, csvHeaders);
       }
     } catch (error) {
       console.warn('Error during async field flattening, falling back to sync:', error);
       warnings.push('Global field fetching failed, using local schema only');
-      // Fallback to sync version if async fails
       if (config.schema) {
         const flattened = flattenContentstackFieldsSync(config.schema);
         console.log('Sync flattened fields:', flattened);
         setFlattenedFields(flattened);
         setFetchWarnings(warnings);
-        initializeMapping(flattened);
+        initializeMapping(flattened, csvHeaders);
       }
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const initializeMapping = (fields: FlattenedField[]) => {
-    console.log('Initializing mapping with fields:', fields);
-    console.log('CSV headers to match:', csvHeaders);
-    
-    const initialMapping = csvHeaders.map(header => {
-      console.log(`\nTrying to match CSV header: "${header}"`);
-      
-      // Try to find a matching field by name, display name, or path
-      const matchingField = fields.find(field => {
-        const uidMatch = field.uid.toLowerCase() === header.toLowerCase();
-        const displayNameMatch = field.display_name.toLowerCase() === header.toLowerCase();
-        const pathMatch = field.fieldPath.toLowerCase() === header.toLowerCase();
-        
-        console.log(`  Checking field: ${field.uid} (${field.display_name}) - path: ${field.fieldPath}`);
-        console.log(`    UID match: ${uidMatch}, Display name match: ${displayNameMatch}, Path match: ${pathMatch}`);
-        
-        return uidMatch || displayNameMatch || pathMatch;
-      });
-      
-      if (matchingField) {
-        console.log(`  ✓ Found match: ${matchingField.fieldPath} (${matchingField.display_name})`);
-      } else {
-        console.log(`  ✗ No match found for "${header}"`);
-      }
-      
-      return {
-        csvColumn: header,
-        contentstackField: matchingField ? matchingField.fieldPath : '__skip__',
-        fieldType: matchingField ? getFieldType(matchingField.data_type) : 'text' as const,
-        isRequired: matchingField ? matchingField.mandatory : false,
-        referenceContentType: matchingField?.data_type === 'reference' ? matchingField.reference_to?.[0] : undefined,
-        blockType: matchingField?.blockType,
-        parentField: matchingField?.parentField
-      };
-    });
-    
-    console.log('Final mapping result:', initialMapping);
-    setMapping(initialMapping);
   };
 
   const fetchContentstackFields = async () => {
@@ -144,7 +100,6 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
       const data = await response.json();
       const fields = data.content_type.schema || [];
       
-      // Use async flattening to handle global fields
       const flattened = await flattenContentstackFields(fields, '', '', {
         apiKey: config.apiKey,
         managementToken: config.managementToken,
@@ -152,7 +107,7 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
       });
       
       setFlattenedFields(flattened);
-      initializeMapping(flattened);
+      initializeMapping(flattened, csvHeaders);
       setIsLoading(false);
     } catch (error) {
       toast({
@@ -164,25 +119,8 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
     }
   };
 
-  const updateMapping = (index: number, field: keyof FieldMappingType, value: any) => {
-    const newMapping = [...mapping];
-    newMapping[index] = { ...newMapping[index], [field]: value };
-    
-    // Auto-detect field type and requirements based on Contentstack field
-    if (field === 'contentstackField') {
-      const csField = flattenedFields.find(f => f.fieldPath === value);
-      if (csField) {
-        newMapping[index].fieldType = getFieldType(csField.data_type);
-        newMapping[index].isRequired = csField.mandatory;
-        newMapping[index].blockType = csField.blockType;
-        newMapping[index].parentField = csField.parentField;
-        if (csField.data_type === 'reference' && csField.reference_to) {
-          newMapping[index].referenceContentType = csField.reference_to[0];
-        }
-      }
-    }
-    
-    setMapping(newMapping);
+  const handleMappingUpdate = (index: number, field: keyof FieldMappingType, value: any) => {
+    updateMapping(index, field, value, flattenedFields);
   };
 
   const handleSubmit = () => {
@@ -202,21 +140,6 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
       title: "Field Mapping Complete",
       description: `Successfully mapped ${validMapping.length} fields`
     });
-  };
-
-  const getFieldDisplayInfo = (field: FlattenedField) => {
-    let displayText = field.display_name;
-    let typeInfo = field.data_type;
-    
-    if (field.blockType) {
-      typeInfo += ` (block: ${field.blockType})`;
-    }
-    
-    if (field.parentField) {
-      typeInfo += ` (nested)`;
-    }
-    
-    return { displayText, typeInfo };
   };
 
   if (isLoading) {
@@ -247,91 +170,25 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
               ✓ Using uploaded schema with {flattenedFields.length} fields (including nested)
             </span>
           )}
-          {fetchWarnings.length > 0 && (
-            <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded text-sm">
-              <div className="font-medium text-amber-800 mb-2">⚠️ Global Field Access Issues:</div>
-              {fetchWarnings.map((warning, index) => (
-                <div key={index} className="text-xs text-amber-700 mb-1">• {warning}</div>
-              ))}
-              <div className="text-xs text-amber-700 mt-2 p-2 bg-amber-100 rounded">
-                💡 <strong>Tip:</strong> Check your API credentials and ensure the global fields exist and are accessible with your management token.
-              </div>
-            </div>
-          )}
+          <GlobalFieldWarnings warnings={fetchWarnings} />
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-6">
           <div className="grid gap-4">
             {csvHeaders.map((header, index) => (
-              <div key={header} className="p-4 border rounded-lg bg-gray-50">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                  <div>
-                    <Label className="text-sm font-medium">CSV Column</Label>
-                    <Input value={header} disabled className="bg-white" />
-                  </div>
-                  
-                  <div>
-                    <Label className="text-sm font-medium">Contentstack Field</Label>
-                    <Select
-                      value={mapping[index]?.contentstackField || '__skip__'}
-                      onValueChange={(value) => updateMapping(index, 'contentstackField', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select field" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-60 overflow-y-auto">
-                        <SelectItem value="__skip__">-- Skip this column --</SelectItem>
-                        {flattenedFields.map((field, fieldIndex) => {
-                          const { displayText, typeInfo } = getFieldDisplayInfo(field);
-                          // Use a combination of fieldPath and index to ensure uniqueness
-                          const uniqueKey = `${field.fieldPath}-${fieldIndex}`;
-                          return (
-                            <SelectItem key={uniqueKey} value={field.fieldPath}>
-                              <div className="flex flex-col">
-                                <span>{displayText}</span>
-                                <span className="text-xs text-gray-500">
-                                  {field.fieldPath} ({typeInfo})
-                                  {field.mandatory && <span className="text-red-500"> *</span>}
-                                </span>
-                              </div>
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <div>
-                    <Label className="text-sm font-medium">Field Type</Label>
-                    <Input
-                      value={mapping[index]?.fieldType || 'text'}
-                      disabled
-                      className="bg-gray-100"
-                    />
-                  </div>
-                </div>
-                
-                {mapping[index]?.fieldType === 'reference' && (
-                  <div className="mt-3">
-                    <Label className="text-sm font-medium">Reference Content Type</Label>
-                    <Input
-                      value={mapping[index]?.referenceContentType || ''}
-                      onChange={(e) => updateMapping(index, 'referenceContentType', e.target.value)}
-                      placeholder="Enter referenced content type UID"
-                      className="mt-1"
-                    />
-                  </div>
-                )}
-                
-                {mapping[index]?.blockType && (
-                  <div className="mt-3">
-                    <div className="text-sm text-blue-600">
-                      ℹ️ This field is part of a modular block: <strong>{mapping[index].blockType}</strong>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <FieldMappingRow
+                key={header}
+                csvHeader={header}
+                mapping={mapping[index] || {
+                  csvColumn: header,
+                  contentstackField: '__skip__',
+                  fieldType: 'text',
+                  isRequired: false
+                }}
+                flattenedFields={flattenedFields}
+                onMappingUpdate={(field, value) => handleMappingUpdate(index, field, value)}
+              />
             ))}
           </div>
           
