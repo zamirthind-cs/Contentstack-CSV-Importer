@@ -1,4 +1,7 @@
-# CSV Importer – Proof of Concept
+# 📥 Contentstack CSV Importer – Proof of Concept
+
+This app allows you to bulk import entries into Contentstack using a CSV file. It walks users through configuration, schema upload, field mapping, and live import tracking.
+> ⚠️ **Note:** This is a proof-of-concept tool and is **not intended for production use**.
 
 A simple CSV import interface built with:
 
@@ -7,6 +10,23 @@ A simple CSV import interface built with:
 - TypeScript
 - Tailwind CSS
 - [shadcn/ui](https://ui.shadcn.com/)
+
+---
+
+## 📚 Table of Contents
+
+1. [Disclaimer](#️disclaimer)
+2. [Getting Started](#getting-started)
+3. [How to Use the CSV Importer UI](#how-to-use-the-csv-importer-ui)
+   - [1. Enter Contentstack Credentials](#1-enter-your-contentstack-credentials)
+   - [2. Choose Environment](#2-choose-the-correct-environment)
+   - [3. Upload Content Type Schema](#3-upload-your-content-type-schema)
+   - [4. Enable Auto-Publish (Optional)](#4-enable-auto-publish-optional)
+   - [5. Upload CSV File](#5--upload-csv-file)
+   - [6. Field Mapping](#6-field-mapping)
+   - [7. Import Data](#7-import-data)
+4. [Considerations & Best Practices](#️-considerations--best-practices)
+
 
 ---
 
@@ -47,7 +67,7 @@ npm run dev
 ---
 
 # 🧭 How to Use the CSV Importer UI
-
+![Import Setup](/public/Import-Setup.png)
 Follow these steps to configure and execute your import successfully:
 
 ---
@@ -84,7 +104,7 @@ Follow these steps to configure and execute your import successfully:
 ---
 
 ## 5. 📄 Upload CSV File
-
+![CSV Upload](/public/CSV-Upload.png)
 Upload the CSV file that contains the data you want to import into Contentstack.
 
 ### 📌 Best Practices for CSV Formatting
@@ -109,6 +129,7 @@ Once your CSV is uploaded, the importer will allow you to map each column to its
 ---
 
 ## 6: 🧩 Field Mapping
+![Field Mapping](/public/Field-Mapping.png)
 
 In this step, you'll map the columns from your CSV file to the fields defined in your uploaded Contentstack content type schema.
 
@@ -135,6 +156,7 @@ In this step, you'll map the columns from your CSV file to the fields defined in
 
 
 ## 7: 🚚 Import Data
+![Start Import](/public/Start-Import.png)
 
 Once all mappings are confirmed, start the import process. The app will process your CSV **row by row**, and for each row, it will attempt one of the following:
 
@@ -143,7 +165,7 @@ Once all mappings are confirmed, start the import process. The app will process 
 - ⏭️ **Skip** the row (if the entry already exists and no new data is provided)
 
 ### 🧾 Real-Time Import Status
-
+![Import Updates](/public/Import-Updates.png)
 - View the total rows, mapped fields, and progress percentage.
 - Status indicators include:
   - `Success`
@@ -154,7 +176,7 @@ Once all mappings are confirmed, start the import process. The app will process 
 ---
 
 ### 📋 Import Logs
-
+![Import Logs](/public/Import-Logs.png)
 - Detailed logs are captured for every row processed.
 - You’ll see:
   - The action taken (create, update, skip)
