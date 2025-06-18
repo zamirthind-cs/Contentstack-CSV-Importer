@@ -74,6 +74,13 @@ Before running a full import, keep the following in mind to avoid common pitfall
 - ✅ **Test with a small sample first**  
   This helps identify issues early (e.g., malformed data, mapping mismatches) before affecting hundreds of entries. It's much easier to fix or clean up a handful of entries than deal with bulk corrections.
 
+- ✅ **Validate field formats before import**  
+  Ensure that your CSV values match the expected data types in Contentstack:
+  - **Date fields** should be in an acceptable ISO format (e.g., `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SSZ`).
+  - **Number fields** must contain numeric values only (no extra characters or symbols).
+  - Other strict field types (e.g., boolean, reference) may also require specific formatting.
+  - Incorrect types may cause the row to be skipped or the entry to be rejected during import.
+
 - 🔁 **Use automation for cleanup when needed**  
   If large-scale cleanup is necessary, consider using the [Contentstack Management API](https://www.contentstack.com/docs/developers/apis/content-management-api/) to script deletions or rollbacks. Manual deletion is inefficient at scale.
 
