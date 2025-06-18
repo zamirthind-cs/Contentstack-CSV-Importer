@@ -17,7 +17,8 @@ A simple CSV import interface built with:
 
 1. [Disclaimer](#️disclaimer)
 2. [Getting Started](#getting-started)
-3. [How to Use the CSV Importer UI](#how-to-use-the-csv-importer-ui)
+3. [Import Tips, Considerations & Best Practices](#️import-tips-considerations--best-practices)
+4. [How to Use the CSV Importer UI](#how-to-use-the-csv-importer-ui)
    - [1. Enter Contentstack Credentials](#1-enter-your-contentstack-credentials)
    - [2. Choose Environment](#2-choose-the-correct-environment)
    - [3. Upload Content Type Schema](#3-upload-your-content-type-schema)
@@ -25,7 +26,7 @@ A simple CSV import interface built with:
    - [5. Upload CSV File](#5--upload-csv-file)
    - [6. Field Mapping](#6-field-mapping)
    - [7. Import Data](#7-import-data)
-4. [Considerations & Best Practices](#️-considerations--best-practices)
+
 
 
 ---
@@ -63,6 +64,30 @@ npm install
 # Step 4: Start the development server
 npm run dev
 ```
+
+---
+
+## Import Tips, Considerations & Best Practices
+
+Before running a full import, keep the following in mind to avoid common pitfalls and streamline the process:
+
+- ✅ **Test with a small sample first**  
+  This helps identify issues early (e.g., malformed data, mapping mismatches) before affecting hundreds of entries. It's much easier to fix or clean up a handful of entries than deal with bulk corrections.
+
+- 🔁 **Use automation for cleanup when needed**  
+  If large-scale cleanup is necessary, consider using the [Contentstack Management API](https://www.contentstack.com/docs/developers/apis/content-management-api/) to script deletions or rollbacks. Manual deletion is inefficient at scale.
+
+- 🔗 **Ensure referenced content types already exist**  
+  All referenced content types (used in reference or global fields) must already be present in your stack before import. Otherwise, those fields will fail to resolve.
+
+- 🧩 **Expect edge cases with modular blocks and deeply nested fields**  
+  While this tool supports most typical schemas, complex nesting (especially with modular blocks or JSON structures) may not map perfectly and could require post-import adjustments.
+
+- 🧪 **Always test in a non-production environment first**  
+  This avoids data loss or content corruption in your live environments and gives you flexibility to iterate safely.
+
+- 💡 **Valuable Insight**:  
+  For modular content models with nesting or reusable global fields, consider doing a dry run using a trimmed-down schema and CSV that only targets simpler fields. Once successful, incrementally expand to include more complex fields. This layered approach helps isolate problem areas and speeds up validation.
 
 ---
 
@@ -198,18 +223,4 @@ You can:
 
 ---
 
-### ⚠️ Import Tip
 
-If you're importing a large dataset, we recommend testing with a **small sample** first. If there's an issue (e.g. invalid data or mapping errors), it’s easier to fix or manually clean up a few entries than hundreds.
-
-If bulk cleanup is needed, consider using the Contentstack Management API or scripting a removal — since manual deletion at scale can be time consuming.
-
-# ⚠️ Considerations & Best Practices
-
-- Ensure any **referenced content types** (e.g., used in reference or global fields) **already exist** in your stack before importing.
-- This tool is designed to handle **most standard content models** and will get you about **90% of the way** there.
-- You may need to **manually adjust entries after import** for:
-  - Modular blocks
-  - Deeply nested structures
-  - Missing linked references
-- We strongly recommend testing the import in a **non-production environment first**.
