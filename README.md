@@ -1,73 +1,193 @@
-# Welcome to your Lovable project
+# CSV Importer – Proof of Concept
 
-## Project info
+A simple CSV import interface built with:
 
-**URL**: https://lovable.dev/projects/6915cceb-4bc5-4fdd-8716-a9c3b492b486
+- React
+- Vite
+- TypeScript
+- Tailwind CSS
+- [shadcn/ui](https://ui.shadcn.com/)
 
-## How can I edit this code?
+---
 
-There are several ways of editing your application.
+## Disclaimer
 
-**Use Lovable**
+The code provided herein is intended solely for demonstration and proof-of-concept purposes. It is NOT intended for production use, nor should it be used in any environment or application where its failure or misbehavior could lead to direct or indirect harm, loss, or damage.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/6915cceb-4bc5-4fdd-8716-a9c3b492b486) and start prompting.
+Users are strongly advised to thoroughly review, test, and, if necessary, modify the code before considering its use in any real-world or production scenario.
 
-Changes made via Lovable will be committed automatically to this repo.
+By using or implementing this code, you acknowledge and accept all risks associated with its use and agree to hold harmless the author(s) or provider(s) from any and all claims, damages, or liabilities.
 
-**Use your preferred IDE**
+---
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## 🛠 Getting Started
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### Prerequisites
 
-Follow these steps:
+Ensure you have the following installed on your machine:
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
+- [Node.js & npm](https://nodejs.org/) – ideally via [nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+
+### Installation
+
+```bash
+# Step 1: Clone the repository
 git clone <YOUR_GIT_URL>
 
-# Step 2: Navigate to the project directory.
+# Step 2: Navigate into the project directory
 cd <YOUR_PROJECT_NAME>
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Step 3: Install dependencies
+npm install
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Step 4: Start the development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+---
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+# 🧭 How to Use the CSV Importer UI
 
-**Use GitHub Codespaces**
+Follow these steps to configure and execute your import successfully:
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+---
 
-## What technologies are used for this project?
+## 1. Enter Your Contentstack Credentials
 
-This project is built with:
+- **API Key**: Found in your stack settings under "API Keys."
+- **Management Token**: Required to create or update entries. Make sure it has sufficient permissions.
+- **API Host**: Select the region corresponding to your stack (e.g., US or EU).
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+---
 
-## How can I deploy this project?
+## 2. Choose the Correct Environment
 
-Simply open [Lovable](https://lovable.dev/projects/6915cceb-4bc5-4fdd-8716-a9c3b492b486) and click on Share -> Publish.
+- Enter the name of the environment (e.g., `development`, `staging`, or `production`) where the entries will be created.
+- ✅ *Be sure to match the environment name exactly as defined in Contentstack.*
 
-## Can I connect a custom domain to my Lovable project?
+---
 
-Yes, you can!
+## 3. Upload Your Content Type Schema
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+- Upload the **JSON schema** for the content type you’re importing into.
+- This file is typically exported from Contentstack:
+  - Navigate to **[Content Models → Export](https://www.contentstack.com/docs/developers/create-content-types/export-a-content-type)**.
+- The importer will auto-fill the **Content Type UID** based on the schema file name.
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+---
+
+## 4. Enable Auto-Publish (Optional)
+
+- Toggle **Auto-publish entries** if you want entries to be published immediately after creation.
+- If left off, entries will be created in **draft** state and must be published manually later.
+
+---
+
+## 5. 📄 Upload CSV File
+
+Upload the CSV file that contains the data you want to import into Contentstack.
+
+### 📌 Best Practices for CSV Formatting
+
+- ✅ **Use headers in the first row**  
+  The first row of your CSV must contain column headers. These headers are used to map data to corresponding fields in your content type.
+
+- 🧠 **Match column names to field UIDs**  
+  For best results, the column headers should **exactly match the UID of the fields** in your Contentstack content type schema.  
+  - Example: If your content type has a text field with UID `author`, your CSV column should also be named `author` — not `authors`, `name`, or `writer`.
+
+- 🧹 **Clean your CSV**  
+  Remove any columns that you don’t intend to map or import. This helps reduce confusion and avoids unintended data issues during the field mapping step.
+ For user readability it is also easier to reorganize the columns to match the order they would appear in the fields of the content type.
+
+- 📎 **Supported format**: CSV with comma-separated values (`.csv` extension)
+
+### ✅ What Happens Next?
+
+Once your CSV is uploaded, the importer will allow you to map each column to its corresponding field in your content type schema. If column headers don’t match any UIDs, you’ll need to manually map them in the next step.
+
+---
+
+## 6: 🧩 Field Mapping
+
+In this step, you'll map the columns from your CSV file to the fields defined in your uploaded Contentstack content type schema.
+
+### 🔄 Auto-Mapping by Header Titles
+
+- The app will **automatically attempt to match CSV columns** to Contentstack fields based on header names.
+- For best results, make sure your CSV column names match the **UIDs** of your fields (e.g. `title`, `state_name`, `coordinates`).
+
+### 🛠 Manual Adjustments
+
+- If a column does **not match any field**, the app will default to **“Skip this column”**.
+- You can also choose to **manually skip fields** if:
+  - The data isn't needed
+  - You plan to enter that data later in Contentstack
+
+### 🔁 Nested Fields & Modular Blocks
+
+- Fields that exist within **modular blocks** or **global fields** will be shown using their full path (e.g. `data.coordinates.lng`).
+- You can map to these nested fields just like standard ones, but keep in mind that complex nesting may require additional post-import validation.
+
+---
+
+✅ Once you've completed your field mappings, you can proceed to import your data.
+
+
+## 7: 🚚 Import Data
+
+Once all mappings are confirmed, start the import process. The app will process your CSV **row by row**, and for each row, it will attempt one of the following:
+
+- ✅ **Create** a new entry (if it doesn’t exist in Contentstack)
+- ♻️ **Update** an existing entry (if the entry exists and contains new data)
+- ⏭️ **Skip** the row (if the entry already exists and no new data is provided)
+
+### 🧾 Real-Time Import Status
+
+- View the total rows, mapped fields, and progress percentage.
+- Status indicators include:
+  - `Success`
+  - `Error`
+  - `Skipped`
+  - `Created`, `Updated`, or `Published` depending on entry state and your auto-publish setting
+
+---
+
+### 📋 Import Logs
+
+- Detailed logs are captured for every row processed.
+- You’ll see:
+  - The action taken (create, update, skip)
+  - Any skipped conditions (e.g. no new data)
+  - The UID of the entry if applicable
+- Logs are secure – API keys and sensitive data are automatically redacted.
+
+You can:
+- 🔄 **Refresh** to update logs during import
+- 📥 **Download** a full log file
+- 🧹 **Clear** the log panel to reset visibility
+
+---
+
+### 🔍 Verifying Entries
+
+- Once import is complete, you can go to your **Entries** section in Contentstack to verify successful creation or updates.
+- Use the logged UID to quickly locate specific entries.
+
+---
+
+### ⚠️ Import Tip
+
+If you're importing a large dataset, we recommend testing with a **small sample** first. If there's an issue (e.g. invalid data or mapping errors), it’s easier to fix or manually clean up a few entries than hundreds.
+
+If bulk cleanup is needed, consider using the Contentstack Management API or scripting a removal — since manual deletion at scale can be time consuming.
+
+# ⚠️ Considerations & Best Practices
+
+- Ensure any **referenced content types** (e.g., used in reference or global fields) **already exist** in your stack before importing.
+- This tool is designed to handle **most standard content models** and will get you about **90% of the way** there.
+- You may need to **manually adjust entries after import** for:
+  - Modular blocks
+  - Deeply nested structures
+  - Missing linked references
+- We strongly recommend testing the import in a **non-production environment first**.
