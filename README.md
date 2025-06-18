@@ -71,7 +71,7 @@ npm run dev
 
 Before running a full import, keep the following in mind to avoid common pitfalls and streamline the process:
 
-- ✅ **Test with a small sample first**  
+- 🧪 **Test with a small sample first**  
   This helps identify issues early (e.g., malformed data, mapping mismatches) before affecting hundreds of entries. It's much easier to fix or clean up a handful of entries than deal with bulk corrections.
 
 - ✅ **Validate field formats before import**  
