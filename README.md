@@ -40,7 +40,7 @@ By using or implementing this code, you acknowledge and accept all risks associa
 
 ---
 
-## 🛠 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -103,7 +103,7 @@ Follow these steps to configure and execute your import successfully:
 
 ---
 
-## 5. 📄 Upload CSV File
+## 5. Upload CSV File
 ![CSV Upload](/public/CSV-Upload.png)
 Upload the CSV file that contains the data you want to import into Contentstack.
 
@@ -122,13 +122,13 @@ Upload the CSV file that contains the data you want to import into Contentstack.
 
 - 📎 **Supported format**: CSV with comma-separated values (`.csv` extension)
 
-### ✅ What Happens Next?
+### What Happens Next?
 
 Once your CSV is uploaded, the importer will allow you to map each column to its corresponding field in your content type schema. If column headers don’t match any UIDs, you’ll need to manually map them in the next step.
 
 ---
 
-## 6: 🧩 Field Mapping
+## 6: Field Mapping
 ![Field Mapping](/public/Field-Mapping.png)
 
 In this step, you'll map the columns from your CSV file to the fields defined in your uploaded Contentstack content type schema.
@@ -155,7 +155,7 @@ In this step, you'll map the columns from your CSV file to the fields defined in
 ✅ Once you've completed your field mappings, you can proceed to import your data.
 
 
-## 7: 🚚 Import Data
+## 7: Import Data
 ![Start Import](/public/Start-Import.png)
 
 Once all mappings are confirmed, start the import process. The app will process your CSV **row by row**, and for each row, it will attempt one of the following:
