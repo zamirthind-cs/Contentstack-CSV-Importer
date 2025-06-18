@@ -17,7 +17,7 @@ A simple CSV import interface built with:
 
 1. [Disclaimer](#️disclaimer)
 2. [Getting Started](#getting-started)
-3. [Import Tips, Considerations & Best Practices](#️import-tips-considerations--best-practices)
+3. [Import Tips, Considerations & Best Practices](#import-tips-considerations--best-practices)
 4. [How to Use the CSV Importer UI](#how-to-use-the-csv-importer-ui)
    - [1. Enter Contentstack Credentials](#1-enter-your-contentstack-credentials)
    - [2. Choose Environment](#2-choose-the-correct-environment)
