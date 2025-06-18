@@ -66,7 +66,7 @@ npm run dev
 
 ---
 
-# 🧭 How to Use the CSV Importer UI
+# How to Use the CSV Importer UI
 ![Import Setup](/public/Import-Setup.png)
 Follow these steps to configure and execute your import successfully:
 
