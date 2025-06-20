@@ -86,6 +86,7 @@ Before running a full import, keep the following in mind to avoid common pitfall
 
 - 🔗 **Ensure referenced content types already exist**  
   All referenced content types (used in reference or global fields) must already be present in your stack before import. Otherwise, those fields will fail to resolve.
+  - Import referenced and related content types before the main entries to avoid mapping issues.
 
 - 🧩 **Expect edge cases with modular blocks and deeply nested fields**  
   While this tool supports most typical schemas, complex nesting (especially with modular blocks or JSON structures) may not map perfectly and could require post-import adjustments.
