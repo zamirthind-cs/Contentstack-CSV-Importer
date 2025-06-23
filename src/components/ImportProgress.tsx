@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -251,6 +252,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         rowIndex: rowIndex + 1,
         entryUid: responseData.entry.uid,
         publishResult,
+        published: config.shouldPublish && publishResult !== null,
         error: undefined,
       };
 
@@ -264,6 +266,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         rowIndex: rowIndex + 1,
         entryUid: undefined,
         publishResult: null,
+        published: false,
         error: errorMessage,
       };
     }
@@ -298,7 +301,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
         console.error('❌ Unexpected error during import:', error);
-        addLog(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        addLog(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
         break;
       }
     }
@@ -337,7 +340,8 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     setProgress(0);
     setCurrentRow(0);
     setResults([]);
-    setLogs([]);
+    secureLogger.clearLogs();
+    addLog('Import reset by user');
     toast({
       title: "Import Reset",
       description: "Import progress has been reset"

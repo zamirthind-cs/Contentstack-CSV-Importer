@@ -49,7 +49,21 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
     try {
       if (config.schema) {
         console.log('Starting async field flattening with uploaded schema...');
-        const flattened = await flattenContentstackFields(config.schema, '', '', {
+        console.log('Schema object:', config.schema);
+        
+        // Extract the schema array from the content type object
+        let schemaFields;
+        if (Array.isArray(config.schema)) {
+          schemaFields = config.schema;
+        } else if (config.schema.schema && Array.isArray(config.schema.schema)) {
+          schemaFields = config.schema.schema;
+        } else {
+          throw new Error('Invalid schema format - expected array or object with schema property');
+        }
+        
+        console.log('Extracted schema fields:', schemaFields);
+        
+        const flattened = await flattenContentstackFields(schemaFields, '', '', {
           apiKey: config.apiKey,
           managementToken: config.managementToken,
           host: config.host
@@ -83,7 +97,18 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
       console.warn('Error during async field flattening, falling back to sync:', error);
       warnings.push('Global field fetching failed, using local schema only');
       if (config.schema) {
-        const flattened = flattenContentstackFieldsSync(config.schema);
+        let schemaFields;
+        if (Array.isArray(config.schema)) {
+          schemaFields = config.schema;
+        } else if (config.schema.schema && Array.isArray(config.schema.schema)) {
+          schemaFields = config.schema.schema;
+        } else {
+          console.error('Invalid schema format for sync fallback');
+          setIsLoading(false);
+          return;
+        }
+        
+        const flattened = flattenContentstackFieldsSync(schemaFields);
         console.log('Sync flattened fields:', flattened);
         setFlattenedFields(flattened);
         setFetchWarnings(warnings);
