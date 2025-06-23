@@ -13,21 +13,110 @@ interface CsvUploadProps {
 const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload }) => {
   const { toast } = useToast();
 
-  const parseCsv = (csvText: string): CsvData => {
-    const lines = csvText.trim().split('\n');
-    const headers = lines[0].split(',').map(header => header.trim().replace(/"/g, ''));
+  const parseCsvLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    let i = 0;
     
-    const rows = lines.slice(1).map(line => {
-      const values = line.split(',').map(value => value.trim().replace(/"/g, ''));
+    while (i < line.length) {
+      const char = line[i];
+      
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          // Handle escaped quotes
+          current += '"';
+          i += 2;
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+          i++;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // End of field
+        result.push(current.trim());
+        current = '';
+        i++;
+      } else {
+        current += char;
+        i++;
+      }
+    }
+    
+    // Add the last field
+    result.push(current.trim());
+    return result;
+  };
+
+  const parseCsv = (csvText: string): CsvData => {
+    console.log('🔍 Starting CSV parsing...');
+    console.log('Raw CSV text length:', csvText.length);
+    
+    // Split by lines but be careful about quoted content
+    const lines: string[] = [];
+    let currentLine = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < csvText.length; i++) {
+      const char = csvText[i];
+      
+      if (char === '"') {
+        inQuotes = !inQuotes;
+        currentLine += char;
+      } else if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (currentLine.trim()) {
+          lines.push(currentLine.trim());
+        }
+        currentLine = '';
+        // Skip \r\n combinations
+        if (char === '\r' && csvText[i + 1] === '\n') {
+          i++;
+        }
+      } else {
+        currentLine += char;
+      }
+    }
+    
+    // Add the last line if it exists
+    if (currentLine.trim()) {
+      lines.push(currentLine.trim());
+    }
+    
+    console.log(`📋 Found ${lines.length} lines after parsing`);
+    lines.forEach((line, index) => {
+      console.log(`Line ${index + 1}: ${line.substring(0, 100)}${line.length > 100 ? '...' : ''}`);
+    });
+    
+    if (lines.length === 0) {
+      throw new Error('No valid lines found in CSV');
+    }
+    
+    // Parse headers
+    const headers = parseCsvLine(lines[0]);
+    console.log('📊 Headers:', headers);
+    
+    // Parse data rows
+    const rows = lines.slice(1).map((line, index) => {
+      console.log(`🔄 Parsing row ${index + 1}:`, line.substring(0, 100) + (line.length > 100 ? '...' : ''));
+      
+      const values = parseCsvLine(line);
+      console.log(`   Values count: ${values.length}, Expected: ${headers.length}`);
+      
       const row: Record<string, string> = {};
       
-      headers.forEach((header, index) => {
-        row[header] = values[index] || '';
+      headers.forEach((header, headerIndex) => {
+        row[header] = values[headerIndex] || '';
       });
+      
+      console.log(`   Row data:`, Object.keys(row).reduce((acc, key) => {
+        acc[key] = row[key].substring(0, 50) + (row[key].length > 50 ? '...' : '');
+        return acc;
+      }, {} as Record<string, string>));
       
       return row;
     });
 
+    console.log(`✅ CSV parsing complete: ${rows.length} data rows found`);
     return { headers, rows };
   };
 
@@ -60,9 +149,10 @@ const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload }) => {
           description: `Found ${csvData.rows.length} rows with ${csvData.headers.length} columns`
         });
       } catch (error) {
+        console.error('CSV parsing error:', error);
         toast({
           title: "Error Parsing CSV",
-          description: "Please check your CSV format and try again",
+          description: "Please check your CSV format and try again. Make sure text fields with commas or line breaks are properly quoted.",
           variant: "destructive"
         });
       }
@@ -81,7 +171,7 @@ const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload }) => {
           Upload CSV File
         </CardTitle>
         <CardDescription>
-          Upload your CSV file containing the data to import into Contentstack
+          Upload your CSV file containing the data to import into Contentstack. Make sure text fields with commas or line breaks are properly quoted.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -106,7 +196,7 @@ const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload }) => {
               </Button>
             </div>
             <p className="text-sm text-gray-400">
-              Supported format: CSV with comma-separated values
+              Supported format: CSV with comma-separated values. Text fields containing commas or line breaks should be enclosed in quotes.
             </p>
           </div>
         </div>
