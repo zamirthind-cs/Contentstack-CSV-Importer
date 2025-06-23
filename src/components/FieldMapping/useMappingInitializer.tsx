@@ -29,6 +29,11 @@ export const useMappingInitializer = () => {
     setMapping(initialMapping);
   }, []);
 
+  const setMappingDirectly = useCallback((directMapping: FieldMappingType[]) => {
+    console.log('Setting mapping directly:', directMapping);
+    setMapping(directMapping);
+  }, []);
+
   const updateMapping = useCallback((index: number, field: keyof FieldMappingType, value: any, flattenedFields: FlattenedField[]) => {
     setMapping(prevMapping => {
       const newMapping = [...prevMapping];
@@ -55,6 +60,7 @@ export const useMappingInitializer = () => {
   return {
     mapping,
     initializeMapping,
-    updateMapping
+    updateMapping,
+    setMappingDirectly
   };
 };

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,13 +8,15 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ContentstackConfig, ContentstackField } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, RotateCcw } from 'lucide-react';
+import { Upload, RotateCcw, Trash2 } from 'lucide-react';
 
 interface ConfigurationFormProps {
   onSubmit: (config: ContentstackConfig) => void;
+  initialConfig?: ContentstackConfig | null;
+  onClearAll?: () => void;
 }
 
-const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
+const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initialConfig, onClearAll }) => {
   const [config, setConfig] = useState<ContentstackConfig>({
     apiKey: '',
     managementToken: '',
@@ -24,6 +27,17 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
   });
   const [schemaFile, setSchemaFile] = useState<File | null>(null);
   const { toast } = useToast();
+
+  // Initialize form with persisted data
+  useEffect(() => {
+    if (initialConfig) {
+      setConfig(prev => ({
+        ...prev,
+        ...initialConfig,
+        managementToken: '' // Always clear the token for security
+      }));
+    }
+  }, [initialConfig]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,6 +89,16 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
       title: "Form Reset",
       description: "All configuration data has been cleared."
     });
+  };
+
+  const handleClearAll = () => {
+    if (onClearAll) {
+      onClearAll();
+      toast({
+        title: "All Data Cleared",
+        description: "All persisted data including config, CSV, and mappings have been cleared."
+      });
+    }
   };
 
   const handleInputChange = (field: keyof ContentstackConfig, value: string | boolean) => {
@@ -142,6 +166,11 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
             1
           </div>
           Contentstack Configuration
+          {initialConfig && (
+            <span className="text-sm text-green-600 font-normal">
+              ✓ Configuration restored (enter token to continue)
+            </span>
+          )}
         </CardTitle>
         <CardDescription>
           Enter your Contentstack API credentials and upload your content type schema
@@ -268,6 +297,17 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
               <RotateCcw className="w-4 h-4" />
               Reset Form
             </Button>
+            {onClearAll && (
+              <Button 
+                type="button" 
+                variant="destructive" 
+                onClick={handleClearAll}
+                className="flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Clear All Data
+              </Button>
+            )}
           </div>
         </form>
       </CardContent>

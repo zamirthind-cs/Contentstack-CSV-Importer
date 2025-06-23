@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ConfigurationForm from '@/components/ConfigurationForm';
@@ -8,6 +8,13 @@ import FieldMapping from '@/components/FieldMapping';
 import ImportProgress from '@/components/ImportProgress';
 import { ContentstackConfig, CsvData, FieldMapping as FieldMappingType, ImportResult } from '@/types/contentstack';
 
+const STORAGE_KEYS = {
+  CONFIG: 'contentstack-config',
+  CSV_DATA: 'contentstack-csv-data',
+  FIELD_MAPPING: 'contentstack-field-mapping',
+  ACTIVE_TAB: 'contentstack-active-tab'
+};
+
 const Index = () => {
   const [activeTab, setActiveTab] = useState('config');
   const [config, setConfig] = useState<ContentstackConfig | null>(null);
@@ -15,6 +22,63 @@ const Index = () => {
   const [fieldMapping, setFieldMapping] = useState<FieldMappingType[]>([]);
   const [importResults, setImportResults] = useState<ImportResult[]>([]);
   const [isImporting, setIsImporting] = useState(false);
+
+  // Load persisted data on component mount
+  useEffect(() => {
+    try {
+      const savedConfig = localStorage.getItem(STORAGE_KEYS.CONFIG);
+      const savedCsvData = localStorage.getItem(STORAGE_KEYS.CSV_DATA);
+      const savedFieldMapping = localStorage.getItem(STORAGE_KEYS.FIELD_MAPPING);
+      const savedActiveTab = localStorage.getItem(STORAGE_KEYS.ACTIVE_TAB);
+
+      if (savedConfig) {
+        const parsedConfig = JSON.parse(savedConfig);
+        // Clear the management token for security
+        parsedConfig.managementToken = '';
+        setConfig(parsedConfig);
+      }
+
+      if (savedCsvData) {
+        setCsvData(JSON.parse(savedCsvData));
+      }
+
+      if (savedFieldMapping) {
+        setFieldMapping(JSON.parse(savedFieldMapping));
+      }
+
+      if (savedActiveTab) {
+        setActiveTab(savedActiveTab);
+      }
+    } catch (error) {
+      console.error('Error loading persisted data:', error);
+    }
+  }, []);
+
+  // Persist data whenever it changes
+  useEffect(() => {
+    if (config) {
+      const configToSave = { ...config };
+      // Don't persist the management token for security
+      configToSave.managementToken = '';
+      localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(configToSave));
+    }
+  }, [config]);
+
+  useEffect(() => {
+    if (csvData) {
+      localStorage.setItem(STORAGE_KEYS.CSV_DATA, JSON.stringify(csvData));
+    }
+  }, [csvData]);
+
+  useEffect(() => {
+    if (fieldMapping.length > 0) {
+      localStorage.setItem(STORAGE_KEYS.FIELD_MAPPING, JSON.stringify(fieldMapping));
+    }
+  }, [fieldMapping]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_TAB, activeTab);
+  }, [activeTab]);
 
   const handleConfigSubmit = (newConfig: ContentstackConfig) => {
     setConfig(newConfig);
@@ -34,6 +98,17 @@ const Index = () => {
   const handleImportComplete = (results: ImportResult[]) => {
     setImportResults(results);
     setIsImporting(false);
+  };
+
+  const clearPersistedData = () => {
+    localStorage.removeItem(STORAGE_KEYS.CONFIG);
+    localStorage.removeItem(STORAGE_KEYS.CSV_DATA);
+    localStorage.removeItem(STORAGE_KEYS.FIELD_MAPPING);
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_TAB);
+    setConfig(null);
+    setCsvData(null);
+    setFieldMapping([]);
+    setActiveTab('config');
   };
 
   return (
@@ -65,11 +140,15 @@ const Index = () => {
               </TabsList>
 
               <TabsContent value="config" className="space-y-6">
-                <ConfigurationForm onSubmit={handleConfigSubmit} />
+                <ConfigurationForm 
+                  onSubmit={handleConfigSubmit} 
+                  initialConfig={config}
+                  onClearAll={clearPersistedData}
+                />
               </TabsContent>
 
               <TabsContent value="upload" className="space-y-6">
-                <CsvUpload onUpload={handleCsvUpload} />
+                <CsvUpload onUpload={handleCsvUpload} initialData={csvData} />
               </TabsContent>
 
               <TabsContent value="mapping" className="space-y-6">
@@ -78,6 +157,7 @@ const Index = () => {
                     csvHeaders={csvData.headers}
                     config={config}
                     onMappingComplete={handleMappingComplete}
+                    initialMapping={fieldMapping}
                   />
                 )}
               </TabsContent>

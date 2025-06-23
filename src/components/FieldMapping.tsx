@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,23 +7,27 @@ import { flattenContentstackFields, flattenContentstackFieldsSync } from '@/util
 import FieldMappingRow from './FieldMapping/FieldMappingRow';
 import GlobalFieldWarnings from './FieldMapping/GlobalFieldWarnings';
 import { useMappingInitializer } from './FieldMapping/useMappingInitializer';
+import { CheckCircle } from 'lucide-react';
 
 interface FieldMappingProps {
   csvHeaders: string[];
   config: ContentstackConfig;
   onMappingComplete: (mapping: FieldMappingType[]) => void;
+  initialMapping?: FieldMappingType[];
 }
 
-const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappingComplete }) => {
+const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappingComplete, initialMapping }) => {
   const [flattenedFields, setFlattenedFields] = useState<FlattenedField[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchWarnings, setFetchWarnings] = useState<string[]>([]);
+  const [hasMappingData, setHasMappingData] = useState(false);
   const { toast } = useToast();
-  const { mapping, initializeMapping, updateMapping } = useMappingInitializer();
+  const { mapping, initializeMapping, updateMapping, setMappingDirectly } = useMappingInitializer();
 
   useEffect(() => {
     console.log('FieldMapping useEffect triggered with csvHeaders:', csvHeaders);
     console.log('Config:', config);
+    console.log('Initial mapping:', initialMapping);
     
     if (config.schema) {
       initializeFromSchema();
@@ -32,6 +35,14 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
       fetchContentstackFields();
     }
   }, []);
+
+  useEffect(() => {
+    if (initialMapping && initialMapping.length > 0 && flattenedFields.length > 0) {
+      console.log('Restoring field mapping from initial data:', initialMapping);
+      setMappingDirectly(initialMapping);
+      setHasMappingData(true);
+    }
+  }, [initialMapping, flattenedFields, setMappingDirectly]);
 
   const initializeFromSchema = async () => {
     const warnings: string[] = [];
@@ -162,6 +173,12 @@ const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappi
             3
           </div>
           Field Mapping
+          {hasMappingData && (
+            <span className="text-sm text-green-600 font-normal flex items-center gap-1">
+              <CheckCircle className="w-4 h-4" />
+              Previous mapping restored
+            </span>
+          )}
         </CardTitle>
         <CardDescription>
           Map your CSV columns to Contentstack fields (including nested fields from modular blocks and global fields)
