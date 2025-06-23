@@ -12,7 +12,8 @@ const STORAGE_KEYS = {
   CONFIG: 'contentstack-config',
   CSV_DATA: 'contentstack-csv-data',
   FIELD_MAPPING: 'contentstack-field-mapping',
-  ACTIVE_TAB: 'contentstack-active-tab'
+  ACTIVE_TAB: 'contentstack-active-tab',
+  SCHEMA_FILE: 'contentstack-schema-file'
 };
 
 const Index = () => {
@@ -22,6 +23,7 @@ const Index = () => {
   const [fieldMapping, setFieldMapping] = useState<FieldMappingType[]>([]);
   const [importResults, setImportResults] = useState<ImportResult[]>([]);
   const [isImporting, setIsImporting] = useState(false);
+  const [persistedSchemaFile, setPersistedSchemaFile] = useState<{ name: string; content: string } | null>(null);
 
   // Load persisted data on component mount
   useEffect(() => {
@@ -30,6 +32,7 @@ const Index = () => {
       const savedCsvData = localStorage.getItem(STORAGE_KEYS.CSV_DATA);
       const savedFieldMapping = localStorage.getItem(STORAGE_KEYS.FIELD_MAPPING);
       const savedActiveTab = localStorage.getItem(STORAGE_KEYS.ACTIVE_TAB);
+      const savedSchemaFile = localStorage.getItem(STORAGE_KEYS.SCHEMA_FILE);
 
       if (savedConfig) {
         const parsedConfig = JSON.parse(savedConfig);
@@ -48,6 +51,10 @@ const Index = () => {
 
       if (savedActiveTab) {
         setActiveTab(savedActiveTab);
+      }
+
+      if (savedSchemaFile) {
+        setPersistedSchemaFile(JSON.parse(savedSchemaFile));
       }
     } catch (error) {
       console.error('Error loading persisted data:', error);
@@ -80,13 +87,26 @@ const Index = () => {
     localStorage.setItem(STORAGE_KEYS.ACTIVE_TAB, activeTab);
   }, [activeTab]);
 
+  useEffect(() => {
+    if (persistedSchemaFile) {
+      localStorage.setItem(STORAGE_KEYS.SCHEMA_FILE, JSON.stringify(persistedSchemaFile));
+    }
+  }, [persistedSchemaFile]);
+
   const handleConfigSubmit = (newConfig: ContentstackConfig) => {
     setConfig(newConfig);
     setActiveTab('upload');
   };
 
+  const handleSchemaFileChange = (schemaFile: { name: string; content: string } | null) => {
+    setPersistedSchemaFile(schemaFile);
+  };
+
   const handleCsvUpload = (data: CsvData) => {
     setCsvData(data);
+    // Clear field mapping when new CSV is uploaded to force re-mapping
+    setFieldMapping([]);
+    localStorage.removeItem(STORAGE_KEYS.FIELD_MAPPING);
     setActiveTab('mapping');
   };
 
@@ -105,9 +125,11 @@ const Index = () => {
     localStorage.removeItem(STORAGE_KEYS.CSV_DATA);
     localStorage.removeItem(STORAGE_KEYS.FIELD_MAPPING);
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_TAB);
+    localStorage.removeItem(STORAGE_KEYS.SCHEMA_FILE);
     setConfig(null);
     setCsvData(null);
     setFieldMapping([]);
+    setPersistedSchemaFile(null);
     setActiveTab('config');
   };
 
@@ -144,6 +166,8 @@ const Index = () => {
                   onSubmit={handleConfigSubmit} 
                   initialConfig={config}
                   onClearAll={clearPersistedData}
+                  persistedSchemaFile={persistedSchemaFile}
+                  onSchemaFileChange={handleSchemaFileChange}
                 />
               </TabsContent>
 

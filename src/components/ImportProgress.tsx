@@ -2,14 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ContentstackConfig, CsvData, FieldMapping, ImportResult } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
-import { StopCircle } from 'lucide-react';
-import { secureLogger } from '@/utils/secureLogger';
-import LogsViewer from '@/components/LogsViewer';
-import { transformNestedValue, mergeNestedData } from '@/utils/fieldUtils';
+import LogsViewer from './LogsViewer';
+import { AlertCircle, CheckCircle, Play, Square, RefreshCw } from 'lucide-react';
 
 interface ImportProgressProps {
   csvData: CsvData;
@@ -29,588 +27,273 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   setIsImporting
 }) => {
   const [progress, setProgress] = useState(0);
-  const [currentRow, setCurrentRow] = useState(0);
+  const [currentEntry, setCurrentEntry] = useState(0);
   const [results, setResults] = useState<ImportResult[]>([]);
-  const [shouldStop, setShouldStop] = useState(false);
-  const [orgName, setOrgName] = useState<string>('destination stack');
-  const [referenceCache, setReferenceCache] = useState<Map<string, string>>(new Map());
+  const [logs, setLogs] = useState<string[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
   const { toast } = useToast();
 
-  const getOrganizationName = async (): Promise<string> => {
-    try {
-      const response = await fetch(`${config.host}/v3/user`, {
-        headers: {
-          'api_key': config.apiKey,
-          'authorization': config.managementToken,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const orgName = data.user?.organizations?.[0]?.name || 'destination stack';
-        secureLogger.info(`Connected to organization: ${orgName}`);
-        return orgName;
-      } else {
-        secureLogger.warning('Failed to retrieve organization name, using default');
-        return 'destination stack';
-      }
-    } catch (error) {
-      secureLogger.warning('Error retrieving organization name', { error: error instanceof Error ? error.message : 'Unknown error' });
-      return 'destination stack';
-    }
+  const addLog = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const logMessage = `[${timestamp}] ${message}`;
+    setLogs(prev => [...prev, logMessage]);
+    console.log(logMessage);
   };
 
-  const resolveReference = async (contentTypeUid: string, titleValue: string): Promise<{ uid: string; _content_type_uid: string } | null> => {
-    const cacheKey = `${contentTypeUid}:${titleValue}`;
+  const transformCsvRowToEntry = (row: Record<string, string>, mapping: FieldMapping[]) => {
+    const entry: any = {};
     
-    // Check cache first
-    if (referenceCache.has(cacheKey)) {
-      const cachedUid = referenceCache.get(cacheKey);
-      if (cachedUid === 'NOT_FOUND') {
-        return null;
-      }
-      return {
-        uid: cachedUid!,
-        _content_type_uid: contentTypeUid
-      };
-    }
-
-    try {
-      secureLogger.info(`Resolving reference: ${contentTypeUid} -> "${titleValue}"`);
+    addLog(`Transforming CSV row: ${JSON.stringify(row)}`);
+    
+    mapping.forEach(map => {
+      const csvValue = row[map.csvColumn];
       
-      const response = await fetch(`${config.host}/v3/content_types/${contentTypeUid}/entries?query={"title":"${titleValue}"}`, {
-        headers: {
-          'api_key': config.apiKey,
-          'authorization': config.managementToken,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const match = data.entries?.[0];
-        
-        if (match) {
-          // Cache the successful resolution
-          setReferenceCache(prev => new Map(prev.set(cacheKey, match.uid)));
-          secureLogger.success(`Referenced "${titleValue}" (UID: ${match.uid}) successfully linked to content type "${contentTypeUid}"`);
-          return {
-            uid: match.uid,
-            _content_type_uid: contentTypeUid
-          };
-        } else {
-          // Cache the "not found" result
-          setReferenceCache(prev => new Map(prev.set(cacheKey, 'NOT_FOUND')));
-          secureLogger.warning(`Warning: Reference value "${titleValue}" not found in content type "${contentTypeUid}". Field left empty.`);
-          return null;
-        }
-      } else {
-        const errorData = await response.json();
-        secureLogger.error(`Reference resolution failed: ${response.status}`, {
-          contentType: contentTypeUid,
-          title: titleValue,
-          error: errorData
-        });
-        return null;
+      if (!csvValue || csvValue.trim() === '') {
+        addLog(`Skipping empty field: ${map.csvColumn}`);
+        return;
       }
-    } catch (error) {
-      secureLogger.error('Error resolving reference', {
-        contentType: contentTypeUid,
-        title: titleValue,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      return null;
-    }
-  };
 
-  const transformValue = async (value: string, fieldMapping: FieldMapping): Promise<any> => {
-    if (!value || value.trim() === '') return null;
-    
-    // Check if this is a link field by data type
-    if (fieldMapping.fieldType === 'link') {
-      return {
-        title: value,
-        href: value
-      };
-    }
-    
-    switch (fieldMapping.fieldType) {
-      case 'number':
-        return parseFloat(value);
-      case 'boolean':
-        return value.toLowerCase() === 'true' || value === '1';
-      case 'date':
-        return new Date(value).toISOString();
-      case 'reference':
-        if (fieldMapping.referenceContentType) {
-          const resolvedRef = await resolveReference(fieldMapping.referenceContentType, value);
-          return resolvedRef ? [resolvedRef] : null;
-        }
-        return null;
-      case 'blocks':
-      case 'global_field':
-        // For blocks and global fields, we'll handle the structure in the main transform function
-        return value;
-      default:
-        return value;
-    }
-  };
+      // Skip file fields that only contain filenames (we can't upload files from CSV)
+      if (map.fieldType === 'file') {
+        addLog(`Skipping file field: ${map.csvColumn} (file uploads not supported from CSV)`);
+        return;
+      }
 
-  const checkEntryExists = async (entryData: any): Promise<{ exists: boolean; uid?: string; entry?: any }> => {
-    try {
-      const titleField = fieldMapping.find(m => m.contentstackField === 'title');
-      const titleValue = titleField ? entryData[titleField.contentstackField] : null;
+      addLog(`Processing field: ${map.csvColumn} -> ${map.contentstackField} (${map.fieldType})`);
       
-      if (!titleValue) {
-        secureLogger.warning('No title field found for entry existence check');
-        return { exists: false };
-      }
+      let transformedValue = csvValue;
 
-      secureLogger.info(`Checking if entry exists with title: ${titleValue}`);
-
-      const response = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries?query={"title":"${titleValue}"}`, {
-        headers: {
-          'api_key': config.apiKey,
-          'authorization': config.managementToken,
-          'Content-Type': 'application/json'
+      try {
+        switch (map.fieldType) {
+          case 'number':
+            transformedValue = parseFloat(csvValue);
+            if (isNaN(transformedValue)) {
+              addLog(`Warning: Invalid number value "${csvValue}" for field ${map.csvColumn}, skipping`);
+              return;
+            }
+            break;
+          case 'boolean':
+            transformedValue = csvValue.toLowerCase() === 'true' || csvValue === '1';
+            break;
+          case 'date':
+            const date = new Date(csvValue);
+            if (isNaN(date.getTime())) {
+              addLog(`Warning: Invalid date value "${csvValue}" for field ${map.csvColumn}, skipping`);
+              return;
+            }
+            transformedValue = date.toISOString();
+            break;
+          case 'json':
+            try {
+              transformedValue = JSON.parse(csvValue);
+            } catch (e) {
+              addLog(`Warning: Invalid JSON value "${csvValue}" for field ${map.csvColumn}, treating as string`);
+              transformedValue = csvValue;
+            }
+            break;
+          case 'reference':
+            // For reference fields, we expect the UID of the referenced entry
+            transformedValue = [{ uid: csvValue }];
+            break;
+          default:
+            // Keep as string for text, link, etc.
+            transformedValue = csvValue;
         }
-      });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.entries && data.entries.length > 0) {
-          secureLogger.success(`Entry found in ${orgName}: ${data.entries[0].uid}`);
-          return { exists: true, uid: data.entries[0].uid, entry: data.entries[0] };
+        // Set the field value using the correct field path
+        const fieldPath = map.contentstackField;
+        if (fieldPath.includes('.')) {
+          // Handle nested fields
+          const parts = fieldPath.split('.');
+          let current = entry;
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (!current[parts[i]]) {
+              current[parts[i]] = {};
+            }
+            current = current[parts[i]];
+          }
+          current[parts[parts.length - 1]] = transformedValue;
         } else {
-          secureLogger.info(`Entry "${titleValue}" not found in ${orgName}`);
-          return { exists: false };
+          entry[fieldPath] = transformedValue;
         }
-      } else {
-        const errorData = await response.json();
-        if (response.status === 412 && errorData.error_code === 109) {
-          secureLogger.error(`API credentials invalid or stack not found: ${errorData.error_message}`);
-          throw new Error(`Invalid API credentials or stack not found: ${errorData.error_message}`);
-        } else {
-          secureLogger.error(`API error checking entry existence: ${response.status}`, {
-            status: response.status,
-            statusText: response.statusText,
-            error: errorData
-          });
-          throw new Error(`API error: ${response.status} - ${errorData.error_message || response.statusText}`);
-        }
+
+        addLog(`Successfully set ${fieldPath} = ${JSON.stringify(transformedValue)}`);
+      } catch (error) {
+        addLog(`Error processing field ${map.csvColumn}: ${error}`);
       }
-    } catch (error) {
-      secureLogger.error('Error checking entry existence', { error: error instanceof Error ? error.message : 'Unknown error' });
-      throw error;
-    }
+    });
+
+    addLog(`Final entry structure: ${JSON.stringify(entry, null, 2)}`);
+    return entry;
   };
 
-  const hasEmptyFieldsToUpdate = (existingEntry: any, newData: any): { hasUpdates: boolean; fieldsToUpdate: string[] } => {
-    const fieldsToUpdate: string[] = [];
-    
-    console.log('🔍 Checking for empty fields to update...');
-    console.log('Existing entry data:', JSON.stringify(existingEntry, null, 2));
-    console.log('New data to compare:', JSON.stringify(newData, null, 2));
-    
-    for (const [key, value] of Object.entries(newData)) {
-      if (value !== null && value !== undefined && value !== '') {
-        const existingValue = existingEntry[key];
-        console.log(`📋 Field "${key}":`, {
-          newValue: value,
-          existingValue: existingValue,
-          existingValueType: typeof existingValue
-        });
-        
-        // Check if the existing field is empty/null/undefined or if it's an empty array (for references)
-        const isEmpty = !existingValue || 
-          (Array.isArray(existingValue) && existingValue.length === 0) ||
-          (typeof existingValue === 'string' && existingValue.trim() === '') ||
-          (typeof existingValue === 'object' && Object.keys(existingValue).length === 0);
-        
-        console.log(`  ✅ Field "${key}" is empty: ${isEmpty}`);
-        
-        if (isEmpty) {
-          fieldsToUpdate.push(key);
-          console.log(`  🎯 Will update field "${key}" with value:`, value);
-        } else {
-          console.log(`  ⏭️ Skipping field "${key}" - already has value:`, existingValue);
-        }
-      } else {
-        console.log(`  ⚠️ Skipping field "${key}" - no new value provided (${value})`);
-      }
-    }
-    
-    console.log(`📊 Summary: ${fieldsToUpdate.length} fields to update:`, fieldsToUpdate);
-    return { hasUpdates: fieldsToUpdate.length > 0, fieldsToUpdate };
-  };
-
-  const validateReferenceFields = async (entryData: any, rowIndex: number): Promise<{ hasIssues: boolean; issues: string[] }> => {
-    const issues: string[] = [];
-    const referenceFields = fieldMapping.filter(m => m.fieldType === 'reference');
-    
-    for (const refField of referenceFields) {
-      const refValue = entryData[refField.contentstackField];
-      if (refValue && Array.isArray(refValue) && refValue.length > 0) {
-        const refEntry = refValue[0];
-        if (!refEntry.uid || refEntry.uid.trim() === '') {
-          const issue = `Reference field '${refField.contentstackField}' has empty UID`;
-          issues.push(issue);
-          secureLogger.warning(issue, { field: refField.contentstackField }, rowIndex);
-        }
-      } else if (refValue === null) {
-        const issue = `Reference field '${refField.contentstackField}' could not be resolved - target entry not found in ${orgName}`;
-        issues.push(issue);
-        secureLogger.warning(issue, { field: refField.contentstackField }, rowIndex);
-      }
-    }
-    
-    return { hasIssues: issues.length > 0, issues };
-  };
-
-  const createOrUpdateEntry = async (rowData: Record<string, string>, rowIndex: number): Promise<ImportResult> => {
+  const createEntry = async (entryData: any, rowIndex: number): Promise<ImportResult> => {
     try {
-      if (shouldStop) {
-        secureLogger.warning('Import stopped by user', {}, rowIndex);
-        return {
-          rowIndex,
-          success: false,
-          error: 'Import stopped by user'
-        };
-      }
+      addLog(`Creating entry ${rowIndex + 1}/${csvData.rows.length}`);
+      addLog(`Entry data: ${JSON.stringify(entryData, null, 2)}`);
 
-      console.log(`🚀 Processing row ${rowIndex + 1}:`, rowData);
-      console.log('📋 Field mapping configuration:', fieldMapping);
-
-      // Initialize entry data with title
-      let entryData: any = {
-        title: rowData[fieldMapping.find(m => m.contentstackField === 'title')?.csvColumn || ''] || `Entry ${rowIndex + 1}`
-      };
-
-      console.log('🏗️ Starting entry data construction...');
-
-      // Process each field mapping, including nested field handling
-      for (const mapping of fieldMapping) {
-        const csvValue = rowData[mapping.csvColumn];
-        console.log(`🔄 Processing mapping:`, {
-          csvColumn: mapping.csvColumn,
-          contentstackField: mapping.contentstackField,
-          csvValue: csvValue,
-          fieldType: mapping.fieldType
-        });
-        
-        if (csvValue !== undefined && csvValue !== '') {
-          const fieldPath = mapping.contentstackField;
-          
-          if (fieldPath.includes('.')) {
-            // Handle nested fields (blocks or global fields)
-            console.log(`🌳 Processing nested field: ${fieldPath}`);
-            const transformedValue = await transformNestedValue(csvValue, fieldPath, mapping, transformValue);
-            console.log(`🔄 Transformed nested value:`, transformedValue);
-            if (transformedValue !== null) {
-              entryData = mergeNestedData(entryData, transformedValue, fieldPath);
-              console.log(`🏗️ Entry data after merging nested field "${fieldPath}":`, JSON.stringify(entryData, null, 2));
-            }
-          } else {
-            // Handle simple fields
-            console.log(`📝 Processing simple field: ${fieldPath}`);
-            const transformedValue = await transformValue(csvValue, mapping);
-            console.log(`🔄 Transformed simple value for "${fieldPath}":`, transformedValue);
-            if (transformedValue !== null) {
-              entryData[mapping.contentstackField] = transformedValue;
-              console.log(`✅ Set field "${mapping.contentstackField}" to:`, transformedValue);
-            }
-          }
-        } else {
-          console.log(`⏭️ Skipping field "${mapping.contentstackField}" - no CSV value`);
-        }
-      }
-
-      console.log('🏁 Final entry data structure:', JSON.stringify(entryData, null, 2));
-      secureLogger.info(`Processing entry: ${entryData.title}`, { entryTitle: entryData.title, entryData: entryData }, rowIndex);
-
-      // Validate reference fields and provide detailed feedback
-      const { hasIssues, issues } = await validateReferenceFields(entryData, rowIndex);
-
-      // Check if entry already exists
-      const existsResult = await checkEntryExists(entryData);
-      
-      if (existsResult.exists && existsResult.entry) {
-        const { hasUpdates, fieldsToUpdate } = hasEmptyFieldsToUpdate(existsResult.entry, entryData);
-        
-        if (!hasUpdates) {
-          let message = `Entry "${entryData.title}" exists in ${orgName} – skipped: all fields are already populated or no new data provided`;
-          if (hasIssues) {
-            message += `. Reference field warnings: ${issues.join(', ')}`;
-          }
-          secureLogger.info(message, { existingUid: existsResult.uid, fieldsChecked: Object.keys(entryData) }, rowIndex);
-          return {
-            rowIndex,
-            success: true,
-            entryUid: existsResult.uid,
-            error: message
-          };
-        }
-
-        // Update existing entry with only the fields that need updating
-        const updateData: any = {};
-        fieldsToUpdate.forEach(field => {
-          updateData[field] = entryData[field];
-        });
-
-        console.log('📤 Sending update data to Contentstack:', JSON.stringify(updateData, null, 2));
-        secureLogger.info(`Updating existing entry: ${existsResult.uid} in ${orgName}`, { fieldsToUpdate, updateData }, rowIndex);
-        
-        const updateResponse = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries/${existsResult.uid}`, {
-          method: 'PUT',
-          headers: {
-            'api_key': config.apiKey,
-            'authorization': config.managementToken,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ entry: updateData })
-        });
-
-        if (!updateResponse.ok) {
-          const errorData = await updateResponse.json();
-          const errorMsg = errorData.error_message || 'Failed to update entry';
-          secureLogger.error(`Update failed: ${errorMsg}`, { responseStatus: updateResponse.status, errorData }, rowIndex);
-          throw new Error(errorMsg);
-        }
-
-        const updatedEntryResponse = await updateResponse.json();
-        const updatedEntry = updatedEntryResponse.entry;
-
-        // ... keep existing code (publishing logic)
-        let published = false;
-        if (config.shouldPublish && config.environment) {
-          try {
-            // Create publish payload with the complete entry data including references
-            const publishPayload: any = {
-              entry: {
-                environments: [config.environment]
-              }
-            };
-
-            // Add reference data to publish payload if the entry has references
-            const referenceFields = fieldMapping.filter(m => m.fieldType === 'reference');
-            if (referenceFields.length > 0) {
-              publishPayload.entry = {
-                ...publishPayload.entry,
-                ...Object.fromEntries(
-                  referenceFields
-                    .filter(field => updatedEntry[field.contentstackField])
-                    .map(field => [field.contentstackField, updatedEntry[field.contentstackField]])
-                )
-              };
-            }
-
-            secureLogger.info(`Publishing entry with references: ${existsResult.uid}`, { publishPayload }, rowIndex);
-
-            const publishResponse = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries/${existsResult.uid}/publish`, {
-              method: 'POST',
-              headers: {
-                'api_key': config.apiKey,
-                'authorization': config.managementToken,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(publishPayload)
-            });
-
-            if (publishResponse.ok) {
-              published = true;
-              secureLogger.success(`Entry published successfully in ${orgName}`, {}, rowIndex);
-            } else {
-              const publishError = await publishResponse.json();
-              secureLogger.warning(`Publish failed but entry was updated in ${orgName}: ${publishError.error_message || 'Unknown publish error'}`, { publishStatus: publishResponse.status, publishError }, rowIndex);
-            }
-          } catch (publishError) {
-            secureLogger.warning(`Failed to publish updated entry in ${orgName}`, { error: publishError instanceof Error ? publishError.message : 'Unknown error' }, rowIndex);
-          }
-        }
-
-        let message = `Entry "${entryData.title}" updated${published ? ' and published' : ''} in ${orgName} – ${fieldsToUpdate.length} fields populated`;
-        if (hasIssues) {
-          message += `. Reference field warnings: ${issues.join(', ')}`;
-        }
-
-        secureLogger.success(message, { updatedUid: existsResult.uid, published, fieldsUpdated: fieldsToUpdate }, rowIndex);
-        return {
-          rowIndex,
-          success: true,
-          entryUid: existsResult.uid,
-          published,
-          error: message
-        };
-      }
-
-      // Entry doesn't exist - create it
-      secureLogger.info(`Entry "${entryData.title}" not found in ${orgName} – creating new entry`);
-
-      const createResponse = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries`, {
+      const response = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries`, {
         method: 'POST',
         headers: {
           'api_key': config.apiKey,
           'authorization': config.managementToken,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ entry: entryData })
+        body: JSON.stringify({
+          entry: entryData
+        })
       });
 
-      if (!createResponse.ok) {
-        const errorData = await createResponse.json();
-        const errorMsg = errorData.error_message || 'Failed to create entry';
-        secureLogger.error(`Creation failed: ${errorMsg}`, { responseStatus: createResponse.status }, rowIndex);
-        throw new Error(errorMsg);
+      const responseData = await response.json();
+      addLog(`API Response (${response.status}): ${JSON.stringify(responseData, null, 2)}`);
+
+      if (!response.ok) {
+        const errorMessage = responseData.error_message || responseData.message || `HTTP ${response.status}`;
+        addLog(`Entry creation failed: ${errorMessage}`);
+        return {
+          success: false,
+          rowIndex,
+          error: errorMessage,
+          entryUid: null
+        };
       }
 
-      const createdEntryResponse = await createResponse.json();
-      const createdEntry = createdEntryResponse.entry;
+      const entryUid = responseData.entry.uid;
+      addLog(`Entry created successfully with UID: ${entryUid}`);
 
-      let published = false;
-      if (config.shouldPublish && config.environment) {
+      // Publish if configured
+      if (config.shouldPublish) {
         try {
-          // Create publish payload with the complete entry data including references
-          const publishPayload: any = {
-            entry: {
-              environments: [config.environment]
-            }
-          };
-
-          // Add reference data to publish payload if the entry has references
-          const referenceFields = fieldMapping.filter(m => m.fieldType === 'reference');
-          if (referenceFields.length > 0) {
-            publishPayload.entry = {
-              ...publishPayload.entry,
-              ...Object.fromEntries(
-                referenceFields
-                  .filter(field => createdEntry[field.contentstackField])
-                  .map(field => [field.contentstackField, createdEntry[field.contentstackField]])
-              )
-            };
-          }
-
-          secureLogger.info(`Publishing created entry with references: ${createdEntry.uid}`, { publishPayload }, rowIndex);
-
-          const publishResponse = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries/${createdEntry.uid}/publish`, {
+          addLog(`Publishing entry ${entryUid}...`);
+          const publishResponse = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries/${entryUid}/publish`, {
             method: 'POST',
             headers: {
               'api_key': config.apiKey,
               'authorization': config.managementToken,
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify(publishPayload)
+            body: JSON.stringify({
+              entry: {
+                environments: [config.environment],
+                locales: ['en-us']
+              }
+            })
           });
 
           if (publishResponse.ok) {
-            published = true;
-            secureLogger.success(`Entry published successfully in ${orgName}`, {}, rowIndex);
+            addLog(`Entry ${entryUid} published successfully`);
           } else {
             const publishError = await publishResponse.json();
-            secureLogger.warning(`Publish failed but entry was created in ${orgName}: ${publishError.error_message || 'Unknown publish error'}`, { publishStatus: publishResponse.status, publishError }, rowIndex);
+            addLog(`Failed to publish entry ${entryUid}: ${publishError.error_message || publishError.message}`);
           }
         } catch (publishError) {
-          secureLogger.warning(`Failed to publish created entry in ${orgName}`, { error: publishError instanceof Error ? publishError.message : 'Unknown error' }, rowIndex);
+          addLog(`Error publishing entry ${entryUid}: ${publishError}`);
         }
       }
 
-      let message = `Entry "${entryData.title}" created${published ? ' and published' : ''} in ${orgName}`;
-      if (hasIssues) {
-        message += `. Reference field warnings: ${issues.join(', ')}`;
-      }
-
-      secureLogger.success(message, { createdUid: createdEntry.uid, published }, rowIndex);
       return {
-        rowIndex,
         success: true,
-        entryUid: createdEntry.uid,
-        published,
-        error: message
+        rowIndex,
+        entryUid,
+        error: null
       };
 
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      secureLogger.error(`Processing failed: ${errorMsg}`, { error: errorMsg }, rowIndex);
+      addLog(`Network error creating entry: ${error}`);
       return {
-        rowIndex,
         success: false,
-        error: errorMsg
+        rowIndex,
+        error: `Network error: ${error}`,
+        entryUid: null
       };
     }
   };
 
   const startImport = async () => {
+    if (isImporting) return;
+
     setIsImporting(true);
     setProgress(0);
-    setCurrentRow(0);
+    setCurrentEntry(0);
     setResults([]);
-    setShouldStop(false);
-    setReferenceCache(new Map()); // Clear reference cache
-
-    secureLogger.clearLogs();
+    setLogs([]);
     
-    // Get organization name first
-    const retrievedOrgName = await getOrganizationName();
-    setOrgName(retrievedOrgName);
-    
-    secureLogger.info(`Starting import process for ${csvData.rows.length} rows to ${retrievedOrgName}`);
+    addLog('Starting import process...');
+    addLog(`Importing ${csvData.rows.length} entries`);
+    addLog(`Field mapping: ${JSON.stringify(fieldMapping, null, 2)}`);
 
     const importResults: ImportResult[] = [];
-    const totalRows = csvData.rows.length;
 
-    for (let i = 0; i < totalRows; i++) {
-      if (shouldStop) {
-        secureLogger.warning(`Import stopped by user at row ${i + 1}/${totalRows}`);
-        toast({
-          title: "Import Stopped",
-          description: `Import stopped by user at row ${i + 1}/${totalRows}`
-        });
-        break;
-      }
-
-      setCurrentRow(i + 1);
-      const result = await createOrUpdateEntry(csvData.rows[i], i);
-      importResults.push(result);
-      setResults([...importResults]);
+    for (let i = 0; i < csvData.rows.length; i++) {
+      setCurrentEntry(i + 1);
       
-      const progressPercentage = ((i + 1) / totalRows) * 100;
-      setProgress(progressPercentage);
-
-      await new Promise(resolve => setTimeout(resolve, 100));
+      try {
+        const row = csvData.rows[i];
+        addLog(`\n--- Processing row ${i + 1} ---`);
+        
+        const entryData = transformCsvRowToEntry(row, fieldMapping);
+        
+        // Check if we have any actual data to import
+        if (Object.keys(entryData).length === 0) {
+          addLog(`Skipping row ${i + 1}: No valid data after transformation`);
+          importResults.push({
+            success: false,
+            rowIndex: i,
+            error: 'No valid data after transformation (all fields skipped)',
+            entryUid: null
+          });
+        } else {
+          const result = await createEntry(entryData, i);
+          importResults.push(result);
+        }
+        
+        setProgress(((i + 1) / csvData.rows.length) * 100);
+        
+        // Small delay to prevent overwhelming the API
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+      } catch (error) {
+        addLog(`Error processing row ${i + 1}: ${error}`);
+        importResults.push({
+          success: false,
+          rowIndex: i,
+          error: `Processing error: ${error}`,
+          entryUid: null
+        });
+      }
     }
 
-    const successCount = importResults.filter(r => r.success).length;
-    const publishedCount = importResults.filter(r => r.published).length;
-    const updatedCount = importResults.filter(r => r.success && r.error?.includes('updated')).length;
-    const createdCount = importResults.filter(r => r.success && r.error?.includes('created')).length;
-    const skippedCount = importResults.filter(r => r.success && (r.error?.includes('skipped') || r.error?.includes('no new fields'))).length;
-
-    secureLogger.success(`Import completed to ${retrievedOrgName}: ${importResults.length}/${totalRows} processed, ${createdCount} created, ${updatedCount} updated, ${skippedCount} skipped, ${publishedCount} published`);
-
-    toast({
-      title: "Import Complete",
-      description: `Processed ${importResults.length}/${totalRows} entries. ${createdCount} created, ${updatedCount} updated, ${skippedCount} skipped, ${publishedCount} published.`
-    });
-
+    setResults(importResults);
     setIsImporting(false);
     onImportComplete(importResults);
+
+    const successCount = importResults.filter(r => r.success).length;
+    const failureCount = importResults.length - successCount;
+    
+    addLog(`\nImport completed: ${successCount} successful, ${failureCount} failed`);
+    
+    toast({
+      title: "Import Complete",
+      description: `Successfully imported ${successCount} out of ${importResults.length} entries`,
+      variant: successCount === importResults.length ? "default" : "destructive"
+    });
   };
 
   const stopImport = () => {
-    setShouldStop(true);
-    secureLogger.warning('Stop import requested by user');
-    toast({
-      title: "Stopping Import",
-      description: "Import will stop after current entry is processed"
-    });
+    setIsImporting(false);
+    addLog('Import stopped by user');
   };
 
-  const successCount = results.filter(r => r.success).length;
-  const errorCount = results.filter(r => !r.success).length;
-  const publishedCount = results.filter(r => r.published).length;
-  const updatedCount = results.filter(r => r.success && r.error?.includes('updated')).length;
-  const createdCount = results.filter(r => r.success && r.error?.includes('created')).length;
-  const skippedCount = results.filter(r => r.success && (r.error?.includes('skipped') || r.error?.includes('no new fields'))).length;
+  const resetImport = () => {
+    setProgress(0);
+    setCurrentEntry(0);
+    setResults([]);
+    setLogs([]);
+    setIsImporting(false);
+  };
+
+  const successfulImports = results.filter(r => r.success).length;
+  const failedImports = results.length - successfulImports;
 
   return (
     <Card>
@@ -619,155 +302,98 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
           <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
             4
           </div>
-          Import Data
+          Import Progress
         </CardTitle>
         <CardDescription>
-          Execute the import process and monitor progress (supports nested fields from modular blocks and global fields)
+          Monitor the import progress and view detailed logs
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <Tabs defaultValue="import" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="import">Import</TabsTrigger>
-            <TabsTrigger value="logs">Logs</TabsTrigger>
-          </TabsList>
+      <CardContent className="space-y-6">
+        {/* Import Controls */}
+        <div className="flex gap-4">
+          <Button 
+            onClick={startImport} 
+            disabled={isImporting}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            <Play className="w-4 h-4 mr-2" />
+            {isImporting ? 'Importing...' : 'Start Import'}
+          </Button>
           
-          <TabsContent value="import" className="space-y-6">
-            {/* Import Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-blue-600">{csvData.rows.length}</div>
-                  <div className="text-sm text-gray-600">Total Rows</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-green-600">{fieldMapping.length}</div>
-                  <div className="text-sm text-gray-600">Mapped Fields</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-purple-600">
-                    {config.shouldPublish ? 'Yes' : 'No'}
-                  </div>
-                  <div className="text-sm text-gray-600">Auto Publish</div>
-                </CardContent>
-              </Card>
+          {isImporting && (
+            <Button 
+              onClick={stopImport} 
+              variant="destructive"
+            >
+              <Square className="w-4 h-4 mr-2" />
+              Stop Import
+            </Button>
+          )}
+          
+          <Button 
+            onClick={resetImport} 
+            variant="outline"
+            disabled={isImporting}
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Reset
+          </Button>
+        </div>
+
+        {/* Progress */}
+        {isImporting && (
+          <div className="space-y-4">
+            <div>
+              <div className="flex justify-between text-sm text-gray-600 mb-2">
+                <span>Processing entry {currentEntry} of {csvData.rows.length}</span>
+                <span>{Math.round(progress)}%</span>
+              </div>
+              <Progress value={progress} className="w-full" />
             </div>
+          </div>
+        )}
 
-            {/* Progress */}
-            {isImporting && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Processing row {currentRow} of {csvData.rows.length}</span>
-                    <span>{Math.round(progress)}%</span>
-                  </div>
-                  <Progress value={progress} className="w-full" />
-                </div>
-              </div>
-            )}
+        {/* Results Summary */}
+        {results.length > 0 && (
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+              <span className="text-green-600 font-semibold">Successful: {successfulImports}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-600" />
+              <span className="text-red-600 font-semibold">Failed: {failedImports}</span>
+            </div>
+          </div>
+        )}
 
-            {/* Results Summary */}
-            {results.length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                <div className="text-center">
-                  <Badge variant="default" className="bg-green-600">
-                    {successCount} Success
-                  </Badge>
-                </div>
-                <div className="text-center">
-                  <Badge variant="destructive">
-                    {errorCount} Errors
-                  </Badge>
-                </div>
-                <div className="text-center">
-                  <Badge variant="secondary">
-                    {publishedCount} Published
-                  </Badge>
-                </div>
-                <div className="text-center">
-                  <Badge variant="default" className="bg-blue-600">
-                    {updatedCount} Updated
-                  </Badge>
-                </div>
-                <div className="text-center">
-                  <Badge variant="default" className="bg-purple-600">
-                    {createdCount} Created
-                  </Badge>
-                </div>
-                <div className="text-center">
-                  <Badge variant="outline">
-                    {skippedCount} Skipped
-                  </Badge>
-                </div>
-              </div>
-            )}
+        {/* Error Summary */}
+        {failedImports > 0 && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {failedImports} entries failed to import. Check the logs below for details.
+            </AlertDescription>
+          </Alert>
+        )}
 
-            {/* Results Details */}
-            {results.length > 0 && (
-              <div className="max-h-60 overflow-y-auto border rounded-lg">
-                <div className="p-4 space-y-2">
-                  {results.map((result, index) => (
-                    <div key={index} className={`flex justify-between items-start p-3 rounded ${
-                      result.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-                    } border`}>
-                      <span className="text-sm font-medium">Row {result.rowIndex + 1}</span>
-                      <div className="flex flex-col items-end gap-1 max-w-2xl">
-                        <div className="flex items-center gap-2">
-                          {result.success ? (
-                            <>
-                              <Badge variant="default" className="bg-green-600 text-xs">Success</Badge>
-                              {result.published && (
-                                <Badge variant="secondary" className="text-xs">Published</Badge>
-                              )}
-                              {result.entryUid && (
-                                <span className="text-xs text-gray-500">{result.entryUid}</span>
-                              )}
-                            </>
-                          ) : (
-                            <Badge variant="destructive" className="text-xs">Error</Badge>
-                          )}
-                        </div>
-                        {result.error && (
-                          <span className={`text-xs text-right leading-relaxed ${
-                            result.success ? 'text-blue-600' : 'text-red-600'
-                          }`}>
-                            {result.error}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {!isImporting && results.length === 0 && (
-              <Button onClick={startImport} className="w-full bg-blue-600 hover:bg-blue-700">
-                Start Import Process
-              </Button>
-            )}
-
-            {isImporting && (
-              <div className="flex gap-2">
-                <Button disabled className="flex-1">
-                  Importing... Please wait
-                </Button>
-                <Button onClick={stopImport} variant="destructive" className="flex items-center gap-2">
-                  <StopCircle className="w-4 h-4" />
-                  Stop Import
-                </Button>
-              </div>
-            )}
-          </TabsContent>
+        {/* Logs */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Import Logs</h3>
+            <Button 
+              onClick={() => setShowLogs(!showLogs)} 
+              variant="outline" 
+              size="sm"
+            >
+              {showLogs ? 'Hide Logs' : 'Show Logs'}
+            </Button>
+          </div>
           
-          <TabsContent value="logs">
-            <LogsViewer />
-          </TabsContent>
-        </Tabs>
+          {showLogs && (
+            <LogsViewer logs={logs} />
+          )}
+        </div>
       </CardContent>
     </Card>
   );

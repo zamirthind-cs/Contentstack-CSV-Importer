@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,15 +7,23 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ContentstackConfig, ContentstackField } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, RotateCcw, Trash2 } from 'lucide-react';
+import { Upload, RotateCcw, Trash2, CheckCircle } from 'lucide-react';
 
 interface ConfigurationFormProps {
   onSubmit: (config: ContentstackConfig) => void;
   initialConfig?: ContentstackConfig | null;
   onClearAll?: () => void;
+  persistedSchemaFile?: { name: string; content: string } | null;
+  onSchemaFileChange?: (schemaFile: { name: string; content: string } | null) => void;
 }
 
-const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initialConfig, onClearAll }) => {
+const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ 
+  onSubmit, 
+  initialConfig, 
+  onClearAll, 
+  persistedSchemaFile,
+  onSchemaFileChange 
+}) => {
   const [config, setConfig] = useState<ContentstackConfig>({
     apiKey: '',
     managementToken: '',
@@ -26,6 +33,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initial
     environment: 'development'
   });
   const [schemaFile, setSchemaFile] = useState<File | null>(null);
+  const [hasPersistedSchema, setHasPersistedSchema] = useState(false);
   const { toast } = useToast();
 
   // Initialize form with persisted data
@@ -38,6 +46,19 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initial
       }));
     }
   }, [initialConfig]);
+
+  // Handle persisted schema file
+  useEffect(() => {
+    if (persistedSchemaFile) {
+      try {
+        const schema = JSON.parse(persistedSchemaFile.content);
+        setConfig(prev => ({ ...prev, schema }));
+        setHasPersistedSchema(true);
+      } catch (error) {
+        console.error('Error parsing persisted schema:', error);
+      }
+    }
+  }, [persistedSchemaFile]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,11 +99,17 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initial
       environment: 'development'
     });
     setSchemaFile(null);
+    setHasPersistedSchema(false);
     
     // Reset file input
     const fileInput = document.getElementById('schema') as HTMLInputElement;
     if (fileInput) {
       fileInput.value = '';
+    }
+    
+    // Clear persisted schema
+    if (onSchemaFileChange) {
+      onSchemaFileChange(null);
     }
     
     toast({
@@ -94,6 +121,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initial
   const handleClearAll = () => {
     if (onClearAll) {
       onClearAll();
+      setHasPersistedSchema(false);
       toast({
         title: "All Data Cleared",
         description: "All persisted data including config, CSV, and mappings have been cleared."
@@ -141,6 +169,15 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initial
         }
 
         setConfig(prev => ({ ...prev, schema }));
+        setHasPersistedSchema(false); // This is a new upload
+        
+        // Persist the schema file
+        if (onSchemaFileChange) {
+          onSchemaFileChange({
+            name: file.name,
+            content: event.target?.result as string
+          });
+        }
         
         toast({
           title: "Schema Uploaded",
@@ -167,8 +204,9 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initial
           </div>
           Contentstack Configuration
           {initialConfig && (
-            <span className="text-sm text-green-600 font-normal">
-              ✓ Configuration restored (enter token to continue)
+            <span className="text-sm text-green-600 font-normal flex items-center gap-1">
+              <CheckCircle className="w-4 h-4" />
+              Configuration restored (enter token to continue)
             </span>
           )}
         </CardTitle>
@@ -257,7 +295,15 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initial
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="schema">Upload Content Type Schema *</Label>
+            <Label htmlFor="schema" className="flex items-center gap-2">
+              Upload Content Type Schema *
+              {hasPersistedSchema && (
+                <span className="text-sm text-green-600 font-normal flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" />
+                  Schema restored ({persistedSchemaFile?.name})
+                </span>
+              )}
+            </Label>
             <div className="flex items-center gap-2">
               <Input
                 id="schema"
@@ -265,7 +311,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initial
                 accept=".json"
                 onChange={handleSchemaUpload}
                 className="cursor-pointer"
-                required
+                required={!hasPersistedSchema}
               />
               <Upload className="w-4 h-4 text-gray-500" />
             </div>
@@ -277,7 +323,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit, initial
                 ✓ Schema loaded with {config.schema.length} fields. Content type: "{config.contentType}"
               </p>
             )}
-            {!schemaFile && (
+            {!hasPersistedSchema && !schemaFile && (
               <p className="text-sm text-red-600">
                 Schema upload is required to proceed with the import
               </p>
