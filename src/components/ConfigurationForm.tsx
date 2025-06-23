@@ -54,15 +54,26 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
   };
 
   const handleReset = () => {
-    // Preserve all data except management token
-    setConfig(prev => ({
-      ...prev,
-      managementToken: ''
-    }));
+    // Reset all configuration data to initial state
+    setConfig({
+      apiKey: '',
+      managementToken: '',
+      host: 'https://api.contentstack.io',
+      contentType: '',
+      shouldPublish: false,
+      environment: 'development'
+    });
+    setSchemaFile(null);
+    
+    // Reset file input
+    const fileInput = document.getElementById('schema') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = '';
+    }
     
     toast({
-      title: "Management Token Cleared",
-      description: "The management token has been cleared. Other configuration data has been preserved."
+      title: "Form Reset",
+      description: "All configuration data has been cleared."
     });
   };
 
@@ -255,7 +266,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
               className="flex items-center gap-2"
             >
               <RotateCcw className="w-4 h-4" />
-              Clear Token
+              Reset Form
             </Button>
           </div>
         </form>
