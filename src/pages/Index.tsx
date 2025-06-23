@@ -13,7 +13,8 @@ const STORAGE_KEYS = {
   CSV_DATA: 'contentstack-csv-data',
   FIELD_MAPPING: 'contentstack-field-mapping',
   ACTIVE_TAB: 'contentstack-active-tab',
-  SCHEMA_FILE: 'contentstack-schema-file'
+  SCHEMA_FILE: 'contentstack-schema-file',
+  MANAGEMENT_TOKEN: 'contentstack-management-token'
 };
 
 const Index = () => {
@@ -33,11 +34,14 @@ const Index = () => {
       const savedFieldMapping = localStorage.getItem(STORAGE_KEYS.FIELD_MAPPING);
       const savedActiveTab = localStorage.getItem(STORAGE_KEYS.ACTIVE_TAB);
       const savedSchemaFile = localStorage.getItem(STORAGE_KEYS.SCHEMA_FILE);
+      const savedManagementToken = localStorage.getItem(STORAGE_KEYS.MANAGEMENT_TOKEN);
 
       if (savedConfig) {
         const parsedConfig = JSON.parse(savedConfig);
-        // Clear the management token for security
-        parsedConfig.managementToken = '';
+        // Restore the management token if available
+        if (savedManagementToken) {
+          parsedConfig.managementToken = savedManagementToken;
+        }
         setConfig(parsedConfig);
       }
 
@@ -65,8 +69,12 @@ const Index = () => {
   useEffect(() => {
     if (config) {
       const configToSave = { ...config };
-      // Don't persist the management token for security
-      configToSave.managementToken = '';
+      // Persist management token separately for security
+      if (config.managementToken) {
+        localStorage.setItem(STORAGE_KEYS.MANAGEMENT_TOKEN, config.managementToken);
+        // Don't include token in the main config object
+        configToSave.managementToken = '';
+      }
       localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(configToSave));
     }
   }, [config]);
@@ -100,6 +108,9 @@ const Index = () => {
 
   const handleSchemaFileChange = (schemaFile: { name: string; content: string } | null) => {
     setPersistedSchemaFile(schemaFile);
+    if (!schemaFile) {
+      localStorage.removeItem(STORAGE_KEYS.SCHEMA_FILE);
+    }
   };
 
   const handleCsvUpload = (data: CsvData) => {
@@ -126,6 +137,7 @@ const Index = () => {
     localStorage.removeItem(STORAGE_KEYS.FIELD_MAPPING);
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_TAB);
     localStorage.removeItem(STORAGE_KEYS.SCHEMA_FILE);
+    localStorage.removeItem(STORAGE_KEYS.MANAGEMENT_TOKEN);
     setConfig(null);
     setCsvData(null);
     setFieldMapping([]);

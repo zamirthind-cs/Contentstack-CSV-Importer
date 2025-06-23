@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CsvData } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
-import { FileUp, CheckCircle } from 'lucide-react';
+import { FileUp, CheckCircle, Upload } from 'lucide-react';
 
 interface CsvUploadProps {
   onUpload: (data: CsvData) => void;
@@ -13,14 +13,13 @@ interface CsvUploadProps {
 const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload, initialData }) => {
   const { toast } = useToast();
   const [hasData, setHasData] = useState(false);
+  const [fileInputKey, setFileInputKey] = useState(Date.now());
 
   useEffect(() => {
     if (initialData) {
       setHasData(true);
-      // Notify parent that we have restored data
-      onUpload(initialData);
     }
-  }, [initialData, onUpload]);
+  }, [initialData]);
 
   const parseCsvLine = (line: string): string[] => {
     const result: string[] = [];
@@ -154,6 +153,9 @@ const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload, initialData }) => {
 
         setHasData(true);
         onUpload(csvData);
+        // Reset file input to allow uploading the same file again
+        setFileInputKey(Date.now());
+        
         toast({
           title: "CSV Uploaded Successfully",
           description: `Found ${csvData.rows.length} rows with ${csvData.headers.length} columns`
@@ -187,7 +189,7 @@ const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload, initialData }) => {
           )}
         </CardTitle>
         <CardDescription>
-          Upload your CSV file containing the data to import into Contentstack. Make sure text fields with commas or line breaks are properly quoted.
+          Upload your CSV file containing the data to import into Contentstack. You can upload a new CSV file at any time to replace the current data.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -200,19 +202,21 @@ const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload, initialData }) => {
               </h3>
               <p className="text-gray-500">
                 {hasData 
-                  ? 'Replace the current CSV data with a new file'
+                  ? 'Replace the current CSV data with a new file. This will clear existing field mappings.'
                   : 'Select a CSV file with headers in the first row'
                 }
               </p>
             </div>
             <div className="relative">
               <input
+                key={fileInputKey}
                 type="file"
                 accept=".csv"
                 onChange={handleFileUpload}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               />
-              <Button className="bg-blue-600 hover:bg-blue-700">
+              <Button className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2">
+                <Upload className="w-4 h-4" />
                 {hasData ? 'Choose New CSV File' : 'Choose CSV File'}
               </Button>
             </div>
@@ -221,6 +225,16 @@ const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload, initialData }) => {
             </p>
           </div>
         </div>
+        
+        {hasData && initialData && (
+          <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+            <h4 className="font-medium text-blue-900 mb-2">Current CSV Data:</h4>
+            <div className="text-sm text-blue-700">
+              <p>• {initialData.rows.length} data rows</p>
+              <p>• {initialData.headers.length} columns: {initialData.headers.slice(0, 3).join(', ')}{initialData.headers.length > 3 ? '...' : ''}</p>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

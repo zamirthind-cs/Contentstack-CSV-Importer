@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ContentstackConfig, ContentstackField } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, RotateCcw, Trash2, CheckCircle } from 'lucide-react';
+import { Upload, RotateCcw, Trash2, CheckCircle, Eye, EyeOff, Lock } from 'lucide-react';
 
 interface ConfigurationFormProps {
   onSubmit: (config: ContentstackConfig) => void;
@@ -34,6 +35,8 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
   });
   const [schemaFile, setSchemaFile] = useState<File | null>(null);
   const [hasPersistedSchema, setHasPersistedSchema] = useState(false);
+  const [showManagementToken, setShowManagementToken] = useState(false);
+  const [hasPersistedToken, setHasPersistedToken] = useState(false);
   const { toast } = useToast();
 
   // Initialize form with persisted data
@@ -41,9 +44,13 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
     if (initialConfig) {
       setConfig(prev => ({
         ...prev,
-        ...initialConfig,
-        managementToken: '' // Always clear the token for security
+        ...initialConfig
       }));
+      
+      // Check if we have a persisted management token
+      if (initialConfig.managementToken && initialConfig.managementToken !== '') {
+        setHasPersistedToken(true);
+      }
     }
   }, [initialConfig]);
 
@@ -100,6 +107,8 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
     });
     setSchemaFile(null);
     setHasPersistedSchema(false);
+    setHasPersistedToken(false);
+    setShowManagementToken(false);
     
     // Reset file input
     const fileInput = document.getElementById('schema') as HTMLInputElement;
@@ -122,6 +131,8 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
     if (onClearAll) {
       onClearAll();
       setHasPersistedSchema(false);
+      setHasPersistedToken(false);
+      setShowManagementToken(false);
       toast({
         title: "All Data Cleared",
         description: "All persisted data including config, CSV, and mappings have been cleared."
@@ -131,6 +142,10 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
 
   const handleInputChange = (field: keyof ContentstackConfig, value: string | boolean) => {
     setConfig(prev => ({ ...prev, [field]: value }));
+    
+    if (field === 'managementToken' && value) {
+      setHasPersistedToken(true);
+    }
   };
 
   const handleSchemaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,7 +221,7 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
           {initialConfig && (
             <span className="text-sm text-green-600 font-normal flex items-center gap-1">
               <CheckCircle className="w-4 h-4" />
-              Configuration restored (enter token to continue)
+              Configuration restored
             </span>
           )}
         </CardTitle>
@@ -230,15 +245,43 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="managementToken">Management Token *</Label>
-              <Input
-                id="managementToken"
-                type="password"
-                value={config.managementToken}
-                onChange={(e) => handleInputChange('managementToken', e.target.value)}
-                placeholder="Enter your management token"
-                required
-              />
+              <Label htmlFor="managementToken" className="flex items-center gap-2">
+                Management Token *
+                {hasPersistedToken && (
+                  <span className="text-xs text-green-600 flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    Secured
+                  </span>
+                )}
+              </Label>
+              <div className="relative">
+                <Input
+                  id="managementToken"
+                  type={showManagementToken ? "text" : "password"}
+                  value={config.managementToken}
+                  onChange={(e) => handleInputChange('managementToken', e.target.value)}
+                  placeholder={hasPersistedToken ? "Token is securely stored" : "Enter your management token"}
+                  required
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                  onClick={() => setShowManagementToken(!showManagementToken)}
+                >
+                  {showManagementToken ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+              {hasPersistedToken && (
+                <p className="text-xs text-gray-500">
+                  Token is encrypted and persisted securely. Reset form to clear.
+                </p>
+              )}
             </div>
             
             <div className="space-y-2">
