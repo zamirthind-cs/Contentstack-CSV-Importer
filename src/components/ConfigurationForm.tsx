@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ContentstackConfig, ContentstackField } from '@/types/contentstack';
 import { useToast } from '@/hooks/use-toast';
-import { Upload } from 'lucide-react';
+import { Upload, RotateCcw } from 'lucide-react';
 
 interface ConfigurationFormProps {
   onSubmit: (config: ContentstackConfig) => void;
@@ -51,6 +50,19 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
     toast({
       title: "Configuration Saved",
       description: "Your Contentstack configuration has been saved successfully"
+    });
+  };
+
+  const handleReset = () => {
+    // Preserve all data except management token
+    setConfig(prev => ({
+      ...prev,
+      managementToken: ''
+    }));
+    
+    toast({
+      title: "Management Token Cleared",
+      description: "The management token has been cleared. Other configuration data has been preserved."
     });
   };
 
@@ -232,9 +244,20 @@ const ConfigurationForm: React.FC<ConfigurationFormProps> = ({ onSubmit }) => {
             )}
           </div>
           
-          <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">
-            Save Configuration & Continue
-          </Button>
+          <div className="flex gap-3">
+            <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700">
+              Save Configuration & Continue
+            </Button>
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={handleReset}
+              className="flex items-center gap-2"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Clear Token
+            </Button>
+          </div>
         </form>
       </CardContent>
     </Card>
