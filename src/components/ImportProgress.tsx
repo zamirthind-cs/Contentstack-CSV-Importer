@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,6 +6,7 @@ import { ContentstackConfig, CsvData, FieldMapping, ImportResult } from '@/types
 import { useToast } from '@/hooks/use-toast';
 import { Play, Pause, RotateCcw } from 'lucide-react';
 import LogsViewer from './LogsViewer';
+import { secureLogger } from '@/utils/secureLogger';
 
 interface ImportProgressProps {
   csvData: CsvData;
@@ -28,15 +28,14 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   const [progress, setProgress] = useState(0);
   const [currentRow, setCurrentRow] = useState(0);
   const [results, setResults] = useState<ImportResult[]>([]);
-  const [logs, setLogs] = useState<string[]>([]);
   const [isPaused, setIsPaused] = useState(false);
   const { toast } = useToast();
 
-  const addLog = (message: string) => {
+  const addLog = (message: string, level: 'info' | 'success' | 'warning' | 'error' = 'info', rowIndex?: number, details?: any) => {
     const timestamp = new Date().toLocaleTimeString();
     const logMessage = `[${timestamp}] ${message}`;
     console.log('📝', logMessage);
-    setLogs(prev => [...prev, logMessage]);
+    secureLogger.log(message, level, rowIndex, details);
   };
 
   const formatFieldValue = (value: any, fieldType: string): any => {
@@ -138,7 +137,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
   const processRow = async (rowData: Record<string, string>, rowIndex: number): Promise<ImportResult> => {
     console.log(`\n🔄 Processing row ${rowIndex + 1}:`, rowData);
-    addLog(`Processing row ${rowIndex + 1} of ${csvData.rows.length}`);
+    addLog(`Processing row ${rowIndex + 1} of ${csvData.rows.length}`, 'info', rowIndex);
 
     try {
       const entryData: Record<string, any> = {};
@@ -158,7 +157,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         // Skip file fields as they can't be uploaded directly from CSV
         if (mapping.fieldType === 'file') {
           console.log('   Skipping file field - not supported for CSV upload');
-          addLog(`Skipping file field "${mapping.contentstackField}" - direct file upload not supported`);
+          addLog(`Skipping file field "${mapping.contentstackField}" - direct file upload not supported`, 'warning', rowIndex);
           continue;
         }
 
@@ -184,7 +183,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       }
 
       console.log('📦 Final entry data:', JSON.stringify(entryData, null, 2));
-      addLog(`Entry data prepared with ${Object.keys(entryData).length} fields`);
+      addLog(`Entry data prepared with ${Object.keys(entryData).length} fields`, 'info', rowIndex, entryData);
 
       // Create entry in Contentstack
       const response = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries`, {
@@ -203,19 +202,19 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
       if (!response.ok) {
         console.error('❌ Contentstack API error:', responseData);
-        addLog(`Error creating entry: ${JSON.stringify(responseData)}`);
+        addLog(`Error creating entry: ${JSON.stringify(responseData)}`, 'error', rowIndex, responseData);
         throw new Error(responseData.error_message || 'Failed to create entry');
       }
 
       console.log('✅ Entry created successfully:', responseData.entry.uid);
-      addLog(`Entry created successfully with UID: ${responseData.entry.uid}`);
+      addLog(`Entry created successfully with UID: ${responseData.entry.uid}`, 'success', rowIndex);
 
       let publishResult = null;
       
       // Publish if required
       if (config.shouldPublish) {
         console.log('📤 Publishing entry...');
-        addLog(`Publishing entry ${responseData.entry.uid}`);
+        addLog(`Publishing entry ${responseData.entry.uid}`, 'info', rowIndex);
         
         const publishResponse = await fetch(
           `${config.host}/v3/content_types/${config.contentType}/entries/${responseData.entry.uid}/publish`,
@@ -239,11 +238,11 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         
         if (publishResponse.ok) {
           console.log('✅ Entry published successfully');
-          addLog(`Entry published successfully to ${config.environment}`);
+          addLog(`Entry published successfully to ${config.environment}`, 'success', rowIndex);
           publishResult = publishData;
         } else {
           console.error('❌ Publish error:', publishData);
-          addLog(`Warning: Failed to publish entry - ${JSON.stringify(publishData)}`);
+          addLog(`Warning: Failed to publish entry - ${JSON.stringify(publishData)}`, 'warning', rowIndex, publishData);
         }
       }
 
@@ -252,18 +251,18 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         rowIndex: rowIndex + 1,
         entryUid: responseData.entry.uid,
         publishResult,
-        error: null,
+        error: undefined,
       };
 
     } catch (error) {
       console.error('❌ Row processing error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      addLog(`Failed to process row ${rowIndex + 1}: ${errorMessage}`);
+      addLog(`Failed to process row ${rowIndex + 1}: ${errorMessage}`, 'error', rowIndex, error);
       
       return {
         success: false,
         rowIndex: rowIndex + 1,
-        entryUid: null,
+        entryUid: undefined,
         publishResult: null,
         error: errorMessage,
       };
@@ -412,7 +411,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         </CardContent>
       </Card>
 
-      <LogsViewer logs={logs} />
+      <LogsViewer />
     </div>
   );
 };

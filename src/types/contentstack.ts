@@ -30,6 +30,7 @@ export interface ImportResult {
   entryUid?: string;
   error?: string;
   published?: boolean;
+  publishResult?: any;
 }
 
 export interface ContentstackField {
