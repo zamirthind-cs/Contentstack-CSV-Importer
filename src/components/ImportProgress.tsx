@@ -1,13 +1,26 @@
-
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { ContentstackConfig, CsvData, FieldMapping, ImportResult } from '@/types/contentstack';
-import { useToast } from '@/hooks/use-toast';
-import { Play, Pause, RotateCcw } from 'lucide-react';
-import LogsViewer from './LogsViewer';
-import { secureLogger } from '@/utils/secureLogger';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/use-toast";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  ContentstackConfig,
+  CsvData,
+  FieldMapping,
+  ImportResult
+} from '@/types/contentstack';
 
 interface ImportProgressProps {
   csvData: CsvData;
@@ -15,7 +28,14 @@ interface ImportProgressProps {
   fieldMapping: FieldMapping[];
   onImportComplete: (results: ImportResult[]) => void;
   isImporting: boolean;
-  setIsImporting: (importing: boolean) => void;
+  setIsImporting: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+interface LogEntry {
+  timestamp: string;
+  message: string;
+  type: 'info' | 'warning' | 'error' | 'success';
+  data?: string;
 }
 
 const ImportProgress: React.FC<ImportProgressProps> = ({
@@ -27,395 +47,274 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
   setIsImporting
 }) => {
   const [progress, setProgress] = useState(0);
-  const [currentRow, setCurrentRow] = useState(0);
   const [results, setResults] = useState<ImportResult[]>([]);
-  const [isPaused, setIsPaused] = useState(false);
-  const { toast } = useToast();
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [filterText, setFilterText] = useState('');
 
-  const addLog = (message: string, level: 'info' | 'success' | 'warning' | 'error' = 'info', rowIndex?: number, details?: any) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const logMessage = `[${timestamp}] ${message}`;
-    console.log('📝', logMessage);
-    secureLogger.log(message, level, rowIndex, details);
-  };
+  const totalRows = csvData.rows.length;
+  const mappedFieldsCount = fieldMapping.filter(mapping => mapping.contentstackField !== 'skip').length;
 
-  const formatFieldValue = (value: any, fieldType: string): any => {
-    console.log(`🔄 Formatting field value: "${value}" for type: ${fieldType}`);
-    
-    if (value === null || value === undefined || value === '') {
-      console.log('   Empty value, returning null');
+  const filteredLogs = logs.filter(log =>
+    log.message.toLowerCase().includes(filterText.toLowerCase()) ||
+    (log.data && log.data.toLowerCase().includes(filterText.toLowerCase()))
+  );
+
+  const transformValue = useCallback(async (value: string, mapping: FieldMapping): Promise<any> => {
+    if (value === null || value === undefined) {
       return null;
     }
 
-    const stringValue = String(value).trim();
-    if (stringValue === '') {
-      console.log('   Empty string value, returning null');
+    if (mapping.fieldType === 'number') {
+      const parsedValue = Number(value);
+      return isNaN(parsedValue) ? null : parsedValue;
+    }
+
+    if (mapping.fieldType === 'boolean') {
+      const lowerValue = value.toLowerCase();
+      if (lowerValue === 'true' || lowerValue === '1') return true;
+      if (lowerValue === 'false' || lowerValue === '0') return false;
       return null;
     }
 
-    switch (fieldType) {
-      case 'number':
-        const numValue = Number(stringValue);
-        if (isNaN(numValue)) {
-          console.log(`   Invalid number: "${stringValue}", returning 0`);
-          return 0;
-        }
-        console.log(`   Converted to number: ${numValue}`);
-        return numValue;
-
-      case 'boolean':
-        const boolValue = stringValue.toLowerCase() === 'true' || stringValue === '1';
-        console.log(`   Converted to boolean: ${boolValue}`);
-        return boolValue;
-
-      case 'date':
-        try {
-          const dateValue = new Date(stringValue).toISOString();
-          console.log(`   Converted to date: ${dateValue}`);
-          return dateValue;
-        } catch (error) {
-          console.log(`   Invalid date: "${stringValue}", returning current date`);
-          return new Date().toISOString();
-        }
-
-      case 'json':
-        try {
-          const jsonValue = JSON.parse(stringValue);
-          console.log(`   Parsed JSON:`, jsonValue);
-          return jsonValue;
-        } catch (error) {
-          console.log(`   Invalid JSON: "${stringValue}", returning as string`);
-          return stringValue;
-        }
-
-      case 'reference':
-        if (stringValue.includes(',')) {
-          const refArray = stringValue.split(',').map(ref => ({ uid: ref.trim() }));
-          console.log(`   Converted to reference array:`, refArray);
-          return refArray;
-        } else {
-          const refValue = { uid: stringValue };
-          console.log(`   Converted to reference object:`, refValue);
-          return refValue;
-        }
-
-      case 'file':
-        console.log(`   Skipping file field - direct file upload not supported from CSV`);
+    if (mapping.fieldType === 'date') {
+      try {
+        return new Date(value).toISOString();
+      } catch (error) {
+        console.warn(`Invalid date format: ${value}`);
         return null;
-
-      case 'link':
-        try {
-          const linkObj = JSON.parse(stringValue);
-          if (linkObj.href) {
-            console.log(`   Converted to link object:`, linkObj);
-            return linkObj;
-          }
-        } catch (e) {
-          // If not JSON, treat as URL
-          const linkValue = { href: stringValue, title: stringValue };
-          console.log(`   Converted URL to link object:`, linkValue);
-          return linkValue;
-        }
-        return stringValue;
-
-      case 'blocks':
-      case 'global_field':
-        try {
-          const parsedValue = JSON.parse(stringValue);
-          console.log(`   Parsed ${fieldType}:`, parsedValue);
-          return parsedValue;
-        } catch (error) {
-          console.log(`   Invalid ${fieldType} JSON: "${stringValue}", skipping`);
-          return null;
-        }
-
-      case 'text':
-      default:
-        console.log(`   Keeping as text: "${stringValue}"`);
-        return stringValue;
+      }
     }
-  };
 
-  const processRow = async (rowData: Record<string, string>, rowIndex: number): Promise<ImportResult> => {
-    console.log(`\n🔄 Processing row ${rowIndex + 1}:`, rowData);
-    addLog(`Processing row ${rowIndex + 1} of ${csvData.rows.length}`, 'info', rowIndex);
+    return value;
+  }, []);
 
+  const handleCreateOrUpdateEntry = useCallback(async (
+    row: Record<string, string>,
+    rowIndex: number
+  ): Promise<ImportResult> => {
     try {
-      const entryData: Record<string, any> = {};
+      let entryData: Record<string, any> = {};
 
-      // Process field mappings
       for (const mapping of fieldMapping) {
-        const csvValue = rowData[mapping.csvColumn];
-        console.log(`📋 Mapping "${mapping.csvColumn}" -> "${mapping.contentstackField}"`);
-        console.log(`   CSV value: "${csvValue}"`);
-        console.log(`   Field type: ${mapping.fieldType}`);
+        if (mapping.contentstackField === 'skip') continue;
 
-        if (mapping.contentstackField === '__skip__') {
-          console.log('   Skipping this field');
-          continue;
+        const csvValue = row[mapping.csvColumn];
+        if (!csvValue && mapping.isRequired) {
+          addLog(`Row ${rowIndex + 1}: Required field "${mapping.contentstackField}" is missing.`, 'warning');
+          return { rowIndex, success: false, error: `Missing required field: ${mapping.contentstackField}` };
         }
 
-        // Skip file fields as they can't be uploaded directly from CSV
-        if (mapping.fieldType === 'file') {
-          console.log('   Skipping file field - not supported for CSV upload');
-          addLog(`Skipping file field "${mapping.contentstackField}" - direct file upload not supported`, 'warning', rowIndex);
-          continue;
-        }
-
-        const formattedValue = formatFieldValue(csvValue, mapping.fieldType);
-        
-        if (formattedValue !== null) {
-          // Handle nested field paths (e.g., "group.nested_field")
-          const fieldPath = mapping.contentstackField.split('.');
-          let current = entryData;
-          
-          for (let i = 0; i < fieldPath.length - 1; i++) {
-            if (!current[fieldPath[i]]) {
-              current[fieldPath[i]] = {};
-            }
-            current = current[fieldPath[i]];
-          }
-          
-          current[fieldPath[fieldPath.length - 1]] = formattedValue;
-          console.log(`   Set field "${mapping.contentstackField}" = ${JSON.stringify(formattedValue)}`);
-        } else {
-          console.log(`   Skipped field "${mapping.contentstackField}" due to null/empty value`);
+        if (csvValue) {
+          entryData[mapping.contentstackField] = await transformValue(csvValue, mapping);
         }
       }
 
-      console.log('📦 Final entry data:', JSON.stringify(entryData, null, 2));
-      addLog(`Entry data prepared with ${Object.keys(entryData).length} fields`, 'info', rowIndex, entryData);
+      const url = `${config.host}/v3/content_types/${config.contentType}/entries`;
+      const headers = {
+        'api_key': config.apiKey,
+        'authorization': config.managementToken,
+        'Content-Type': 'application/json'
+      };
 
-      // Create entry in Contentstack
-      const response = await fetch(`${config.host}/v3/content_types/${config.contentType}/entries`, {
+      const entryPayload = { entry: entryData };
+
+      const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'api_key': config.apiKey,
-          'authorization': config.managementToken,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          entry: entryData,
-        }),
+        headers: headers,
+        body: JSON.stringify(entryPayload)
       });
 
-      const responseData = await response.json();
-
       if (!response.ok) {
-        console.error('❌ Contentstack API error:', responseData);
-        addLog(`Error creating entry: ${JSON.stringify(responseData)}`, 'error', rowIndex, responseData);
-        throw new Error(responseData.error_message || 'Failed to create entry');
+        const errorText = await response.text();
+        addLog(`Row ${rowIndex + 1}: Error creating entry: ${errorText}`, 'error', errorText);
+        return { rowIndex, success: false, error: errorText };
       }
 
-      console.log('✅ Entry created successfully:', responseData.entry.uid);
-      addLog(`Entry created successfully with UID: ${responseData.entry.uid}`, 'success', rowIndex);
+      const responseData = await response.json();
+      const entryUid = responseData.entry.uid;
+      addLog(`Row ${rowIndex + 1}: Entry created successfully with UID: ${entryUid}`, 'success');
 
-      let publishResult = null;
-      
-      // Publish if required
       if (config.shouldPublish) {
-        console.log('📤 Publishing entry...');
-        addLog(`Publishing entry ${responseData.entry.uid}`, 'info', rowIndex);
-        
-        const publishResponse = await fetch(
-          `${config.host}/v3/content_types/${config.contentType}/entries/${responseData.entry.uid}/publish`,
-          {
-            method: 'POST',
-            headers: {
-              'api_key': config.apiKey,
-              'authorization': config.managementToken,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              entry: {
-                environments: [config.environment],
-                locales: ['en-us']
-              },
-            }),
-          }
-        );
-
-        const publishData = await publishResponse.json();
-        
-        if (publishResponse.ok) {
-          console.log('✅ Entry published successfully');
-          addLog(`Entry published successfully to ${config.environment}`, 'success', rowIndex);
-          publishResult = publishData;
-        } else {
-          console.error('❌ Publish error:', publishData);
-          addLog(`Warning: Failed to publish entry - ${JSON.stringify(publishData)}`, 'warning', rowIndex, publishData);
+        setIsPublishing(true);
+        try {
+          const publishResult = await publishEntry(entryUid);
+          setIsPublishing(false);
+          addLog(`Row ${rowIndex + 1}: Entry published successfully`, 'success', publishResult);
+          return { rowIndex, success: true, entryUid, published: true, publishResult };
+        } catch (publishError: any) {
+          setIsPublishing(false);
+          addLog(`Row ${rowIndex + 1}: Error publishing entry: ${publishError.message || publishError}`, 'error', publishError);
+          return { rowIndex, success: true, entryUid, published: false, error: publishError.message || publishError };
         }
       }
 
-      return {
-        success: true,
-        rowIndex: rowIndex + 1,
-        entryUid: responseData.entry.uid,
-        publishResult,
-        published: config.shouldPublish && publishResult !== null,
-        error: undefined,
-      };
-
-    } catch (error) {
-      console.error('❌ Row processing error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      addLog(`Failed to process row ${rowIndex + 1}: ${errorMessage}`, 'error', rowIndex, error);
-      
-      return {
-        success: false,
-        rowIndex: rowIndex + 1,
-        entryUid: undefined,
-        publishResult: null,
-        published: false,
-        error: errorMessage,
-      };
+      return { rowIndex, success: true, entryUid };
+    } catch (error: any) {
+      addLog(`Row ${rowIndex + 1}: Unexpected error: ${error.message || error}`, 'error', error);
+      return { rowIndex, success: false, error: error.message || error };
     }
+  }, [config, fieldMapping, transformValue]);
+
+  const publishEntry = async (entryUid: string) => {
+    const publishUrl = `${config.host}/v3/content_types/${config.contentType}/entries/${entryUid}/publish`;
+    const publishHeaders = {
+      'api_key': config.apiKey,
+      'authorization': config.managementToken,
+      'Content-Type': 'application/json'
+    };
+
+    const publishPayload = {
+      entry: {
+        environments: [config.environment],
+        locale: 'en-us'
+      }
+    };
+
+    const publishResponse = await fetch(publishUrl, {
+      method: 'POST',
+      headers: publishHeaders,
+      body: JSON.stringify(publishPayload)
+    });
+
+    if (!publishResponse.ok) {
+      const errorText = await publishResponse.text();
+      throw new Error(`Error publishing entry: ${errorText}`);
+    }
+
+    return await publishResponse.json();
   };
 
-  const startImport = async () => {
-    console.log('🚀 Starting import process...');
-    addLog('Starting import process...');
+  const startImport = useCallback(async () => {
     setIsImporting(true);
-    setIsPaused(false);
-    setProgress(0);
-    setCurrentRow(0);
     setResults([]);
-
-    const totalRows = csvData.rows.length;
-    console.log(`📊 Total rows to process: ${totalRows}`);
-    addLog(`Total rows to process: ${totalRows}`);
+    setLogs([]);
+    setProgress(0);
 
     const importResults: ImportResult[] = [];
 
-    for (let i = 0; i < totalRows && !isPaused; i++) {
-      try {
-        setCurrentRow(i + 1);
-        const result = await processRow(csvData.rows[i], i);
-        importResults.push(result);
-        setResults([...importResults]);
+    for (let i = 0; i < csvData.rows.length; i++) {
+      const row = csvData.rows[i];
+      const result = await handleCreateOrUpdateEntry(row, i);
+      importResults.push(result);
 
-        const progressPercent = ((i + 1) / totalRows) * 100;
-        setProgress(progressPercent);
-
-        // Small delay to prevent overwhelming the API
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } catch (error) {
-        console.error('❌ Unexpected error during import:', error);
-        addLog(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-        break;
-      }
+      const currentProgress = ((i + 1) / csvData.rows.length) * 100;
+      setProgress(currentProgress);
+      setResults(importResults);
     }
 
-    if (!isPaused) {
-      setIsImporting(false);
-      const successCount = importResults.filter(r => r.success).length;
-      const failureCount = importResults.filter(r => !r.success).length;
-      
-      console.log(`✅ Import completed: ${successCount} success, ${failureCount} failures`);
-      addLog(`Import completed: ${successCount} entries created successfully, ${failureCount} failures`);
-      
+    setIsImporting(false);
+    onImportComplete(importResults);
+  }, [csvData, config, fieldMapping, onImportComplete, handleCreateOrUpdateEntry, setIsImporting]);
+
+  const addLog = (message: string, type: 'info' | 'warning' | 'error' | 'success' = 'info', data?: any) => {
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      message,
+      type,
+      data: data ? JSON.stringify(data, null, 2) : undefined
+    };
+    setLogs(prev => [...prev, logEntry]);
+  };
+
+  useEffect(() => {
+    if (results.length > 0 && results.every(r => r.success)) {
       toast({
-        title: "Import Complete",
-        description: `${successCount} entries created successfully, ${failureCount} failures`,
-        variant: successCount > 0 ? "default" : "destructive"
+        title: "Import Completed",
+        description: "All entries were processed successfully.",
       });
-
-      onImportComplete(importResults);
+    } else if (results.length > 0 && results.some(r => !r.success)) {
+      toast({
+        title: "Import Completed with Errors",
+        description: "Some entries failed to import. Check the logs for details.",
+        variant: "destructive",
+      });
     }
-  };
-
-  const pauseImport = () => {
-    setIsPaused(true);
-    setIsImporting(false);
-    addLog('Import paused by user');
-    toast({
-      title: "Import Paused",
-      description: "You can resume the import at any time"
-    });
-  };
-
-  const resetImport = () => {
-    setIsImporting(false);
-    setIsPaused(false);
-    setProgress(0);
-    setCurrentRow(0);
-    setResults([]);
-    secureLogger.clearLogs();
-    addLog('Import reset by user');
-    toast({
-      title: "Import Reset",
-      description: "Import progress has been reset"
-    });
-  };
+  }, [results]);
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
-              4
-            </div>
-            Import Progress
-          </CardTitle>
-          <CardDescription>
-            Monitor the import progress and view detailed logs
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex gap-3">
-            {!isImporting && !isPaused && (
-              <Button onClick={startImport} className="bg-green-600 hover:bg-green-700 flex items-center gap-2">
-                <Play className="w-4 h-4" />
-                Start Import
-              </Button>
-            )}
-            {isImporting && (
-              <Button onClick={pauseImport} variant="outline" className="flex items-center gap-2">
-                <Pause className="w-4 h-4" />
-                Pause Import
-              </Button>
-            )}
-            {isPaused && (
-              <Button onClick={startImport} className="bg-green-600 hover:bg-green-700 flex items-center gap-2">
-                <Play className="w-4 h-4" />
-                Resume Import
-              </Button>
-            )}
-            <Button onClick={resetImport} variant="outline" className="flex items-center gap-2">
-              <RotateCcw className="w-4 h-4" />
-              Reset
-            </Button>
-          </div>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Import Progress</h2>
+        <div className="flex space-x-2">
+          <Button
+            variant="secondary"
+            onClick={() => setLogs([])}
+            disabled={logs.length === 0}
+          >
+            Clear Logs
+          </Button>
+          <Button
+            disabled={isImporting || isPublishing}
+            onClick={startImport}
+          >
+            {isImporting ? 'Importing...' : 'Start Import'}
+          </Button>
+        </div>
+      </div>
 
-          {(isImporting || isPaused || progress > 0) && (
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-sm text-gray-600 mb-2">
-                  <span>Progress: {currentRow} / {csvData.rows.length}</span>
-                  <span>{Math.round(progress)}%</span>
-                </div>
-                <Progress value={progress} className="w-full" />
-              </div>
+      <div className="space-y-2">
+        <Progress value={progress} />
+        <p className="text-sm text-muted-foreground">
+          {isImporting
+            ? `Importing data... ${Math.round(progress)}%`
+            : 'Ready to import data.'}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Total rows: {totalRows}, Mapped fields: {mappedFieldsCount}
+        </p>
+      </div>
 
-              {results.length > 0 && (
-                <div className="text-sm text-gray-600">
-                  <span className="text-green-600">
-                    ✓ {results.filter(r => r.success).length} successful
-                  </span>
-                  {results.filter(r => !r.success).length > 0 && (
-                    <span className="text-red-600 ml-4">
-                      ✗ {results.filter(r => !r.success).length} failed
-                    </span>
+      <div>
+        <Label htmlFor="log-filter">Filter Logs:</Label>
+        <Input
+          type="text"
+          id="log-filter"
+          placeholder="Filter by message or data"
+          value={filterText}
+          onChange={(e) => setFilterText(e.target.value)}
+          className="w-full"
+        />
+      </div>
+
+      <div className="rounded-md border">
+        <Table>
+          <TableCaption>Import Logs</TableCaption>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[100px]">Time</TableHead>
+              <TableHead>Message</TableHead>
+              <TableHead className="w-[120px]">Type</TableHead>
+              <TableHead className="w-[150px]">Data</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredLogs.map((log, index) => (
+              <TableRow key={index}>
+                <TableCell className="font-medium">{log.timestamp}</TableCell>
+                <TableCell>{log.message}</TableCell>
+                <TableCell>{log.type}</TableCell>
+                <TableCell>
+                  {log.data && (
+                    <Textarea
+                      value={log.data}
+                      readOnly
+                      className="w-full h-24 resize-none"
+                    />
                   )}
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <LogsViewer />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+          <TableFooter>
+            <TableRow>
+              <TableCell colSpan={4}>
+                {filteredLogs.length} log entries
+              </TableCell>
+            </TableRow>
+          </TableFooter>
+        </Table>
+      </div>
     </div>
   );
 };

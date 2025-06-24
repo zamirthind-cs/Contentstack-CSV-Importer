@@ -1,13 +1,45 @@
 import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ContentstackConfig, FieldMapping as FieldMappingType, FlattenedField } from '@/types/contentstack';
-import { useToast } from '@/hooks/use-toast';
-import { flattenContentstackFields, flattenContentstackFieldsSync } from '@/utils/fieldUtils';
-import FieldMappingRow from './FieldMapping/FieldMappingRow';
-import GlobalFieldWarnings from './FieldMapping/GlobalFieldWarnings';
-import { useMappingInitializer } from './FieldMapping/useMappingInitializer';
-import { CheckCircle } from 'lucide-react';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Button } from "@/components/ui/button"
+import { ContentstackConfig, CsvData, FieldMapping as FieldMappingType, FlattenedField, ContentstackField } from '@/types/contentstack';
+import { flattenContentstackFields, getFieldType } from '@/utils/fieldUtils';
+import { toast } from "@/components/ui/use-toast"
+import { useToast } from "@/hooks/use-toast"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
+import { cn } from "@/lib/utils"
 
 interface FieldMappingProps {
   csvHeaders: string[];
@@ -16,228 +48,186 @@ interface FieldMappingProps {
   initialMapping?: FieldMappingType[];
 }
 
-const FieldMapping: React.FC<FieldMappingProps> = ({ csvHeaders, config, onMappingComplete, initialMapping }) => {
+const FieldMapping: React.FC<FieldMappingProps> = ({ 
+  csvHeaders, 
+  config, 
+  onMappingComplete, 
+  initialMapping = [] 
+}) => {
+  const [fieldMapping, setFieldMapping] = useState<FieldMappingType[]>([]);
   const [flattenedFields, setFlattenedFields] = useState<FlattenedField[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [fetchWarnings, setFetchWarnings] = useState<string[]>([]);
-  const [hasMappingData, setHasMappingData] = useState(false);
-  const { toast } = useToast();
-  const { mapping, initializeMapping, updateMapping, setMappingDirectly } = useMappingInitializer();
+  const [schemaError, setSchemaError] = useState<string | null>(null);
 
+  // Initialize flattened fields
   useEffect(() => {
-    console.log('FieldMapping useEffect triggered with csvHeaders:', csvHeaders);
-    console.log('Config:', config);
-    console.log('Initial mapping:', initialMapping);
-    
-    if (config.schema) {
-      initializeFromSchema();
-    } else {
-      fetchContentstackFields();
-    }
-  }, []);
-
-  useEffect(() => {
-    if (initialMapping && initialMapping.length > 0 && flattenedFields.length > 0) {
-      console.log('Restoring field mapping from initial data:', initialMapping);
-      setMappingDirectly(initialMapping);
-      setHasMappingData(true);
-    }
-  }, [initialMapping, flattenedFields, setMappingDirectly]);
-
-  const initializeFromSchema = async () => {
-    const warnings: string[] = [];
-    try {
-      if (config.schema) {
-        console.log('Starting async field flattening with uploaded schema...');
-        console.log('Schema object:', config.schema);
+    const initializeFields = async () => {
+      try {
+        setIsLoading(true);
+        setSchemaError(null);
         
-        // Extract the schema array from the content type object
-        let schemaFields;
+        if (!config?.schema) {
+          setSchemaError('No schema available');
+          setIsLoading(false);
+          return;
+        }
+
+        // Handle different schema structures
+        let schemaFields: ContentstackField[] = [];
+        
         if (Array.isArray(config.schema)) {
           schemaFields = config.schema;
-        } else if (config.schema.schema && Array.isArray(config.schema.schema)) {
-          schemaFields = config.schema.schema;
+        } else if (config.schema && typeof config.schema === 'object' && 'schema' in config.schema) {
+          // Handle case where schema is wrapped in an object
+          schemaFields = (config.schema as any).schema || [];
         } else {
-          throw new Error('Invalid schema format - expected array or object with schema property');
+          setSchemaError('Invalid schema format');
+          setIsLoading(false);
+          return;
         }
-        
-        console.log('Extracted schema fields:', schemaFields);
-        
+
         const flattened = await flattenContentstackFields(schemaFields, '', '', {
           apiKey: config.apiKey,
           managementToken: config.managementToken,
           host: config.host
         });
         
-        console.log('Flattened fields:', flattened);
-        
-        const globalFieldsWithIssues = flattened.filter(f => 
-          f.data_type === 'global_field' && 
-          (f.display_name.includes('invalid credentials') || 
-           f.display_name.includes('not found') || 
-           f.display_name.includes('unauthorized') ||
-           f.display_name.includes('network error') ||
-           f.display_name.includes('no config'))
-        );
-        
-        if (globalFieldsWithIssues.length > 0) {
-          const issueDetails = globalFieldsWithIssues.map(f => {
-            const issue = f.display_name.match(/\(global field - (.+)\)/)?.[1] || 'unknown error';
-            return `${f.uid}: ${issue}`;
-          });
-          warnings.push(`Global field issues: ${issueDetails.join(', ')}`);
-        }
-        
-        console.log(`Field flattening complete. Found ${flattened.length} total fields`);
         setFlattenedFields(flattened);
-        setFetchWarnings(warnings);
-        initializeMapping(flattened, csvHeaders);
+      } catch (error) {
+        console.error('Error flattening fields:', error);
+        setSchemaError('Error processing schema');
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.warn('Error during async field flattening, falling back to sync:', error);
-      warnings.push('Global field fetching failed, using local schema only');
-      if (config.schema) {
-        let schemaFields;
-        if (Array.isArray(config.schema)) {
-          schemaFields = config.schema;
-        } else if (config.schema.schema && Array.isArray(config.schema.schema)) {
-          schemaFields = config.schema.schema;
-        } else {
-          console.error('Invalid schema format for sync fallback');
-          setIsLoading(false);
-          return;
-        }
-        
-        const flattened = flattenContentstackFieldsSync(schemaFields);
-        console.log('Sync flattened fields:', flattened);
-        setFlattenedFields(flattened);
-        setFetchWarnings(warnings);
-        initializeMapping(flattened, csvHeaders);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    };
 
-  const fetchContentstackFields = async () => {
-    try {
-      const response = await fetch(`${config.host}/v3/content_types/${config.contentType}`, {
-        headers: {
-          'api_key': config.apiKey,
-          'authorization': config.managementToken,
-          'Content-Type': 'application/json'
-        }
-      });
+    initializeFields();
+  }, [config]);
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch content type schema');
-      }
-
-      const data = await response.json();
-      const fields = data.content_type.schema || [];
-      
-      const flattened = await flattenContentstackFields(fields, '', '', {
-        apiKey: config.apiKey,
-        managementToken: config.managementToken,
-        host: config.host
-      });
-      
-      setFlattenedFields(flattened);
-      initializeMapping(flattened, csvHeaders);
-      setIsLoading(false);
-    } catch (error) {
-      toast({
-        title: "Error Fetching Content Type",
-        description: "Could not fetch content type schema. Please check your configuration or upload a schema file.",
-        variant: "destructive"
-      });
-      setIsLoading(false);
-    }
-  };
-
-  const handleMappingUpdate = (index: number, field: keyof FieldMappingType, value: any) => {
-    updateMapping(index, field, value, flattenedFields);
-  };
-
-  const handleSubmit = () => {
-    const validMapping = mapping.filter(m => m.contentstackField !== '__skip__');
+  // Initialize field mapping based on CSV headers and flattened fields
+  useEffect(() => {
+    if (flattenedFields.length === 0 || csvHeaders.length === 0) return;
     
-    if (validMapping.length === 0) {
-      toast({
-        title: "No Fields Mapped",
-        description: "Please map at least one CSV column to a Contentstack field",
-        variant: "destructive"
-      });
+    if (initialMapping.length > 0) {
+      setFieldMapping(initialMapping);
       return;
     }
 
-    onMappingComplete(validMapping);
-    toast({
-      title: "Field Mapping Complete",
-      description: `Successfully mapped ${validMapping.length} fields`
+    const mapping: FieldMappingType[] = csvHeaders.map(header => {
+      // Try to auto-match based on field UID or display name
+      const matchedField = flattenedFields.find(field => 
+        field.uid === header || 
+        field.display_name.toLowerCase() === header.toLowerCase() ||
+        field.fieldPath === header
+      );
+
+      if (matchedField) {
+        return {
+          csvColumn: header,
+          contentstackField: matchedField.fieldPath,
+          fieldType: getFieldType(matchedField.data_type),
+          isRequired: matchedField.mandatory,
+          referenceContentType: matchedField.reference_to?.[0],
+          blockType: matchedField.blockType,
+          parentField: matchedField.parentField
+        };
+      }
+
+      // Default to skip if no match found
+      return {
+        csvColumn: header,
+        contentstackField: 'skip',
+        fieldType: 'text' as const,
+        isRequired: false
+      };
+    });
+
+    setFieldMapping(mapping);
+  }, [csvHeaders, flattenedFields, initialMapping]);
+
+  const handleFieldChange = (index: number, contentstackField: string) => {
+    setFieldMapping(prevMapping => {
+      const newMapping = [...prevMapping];
+      const matchedField = flattenedFields.find(field => field.fieldPath === contentstackField);
+
+      newMapping[index] = {
+        ...newMapping[index],
+        csvColumn: csvHeaders[index],
+        contentstackField: contentstackField,
+        fieldType: matchedField ? getFieldType(matchedField.data_type) : 'text',
+        isRequired: matchedField ? matchedField.mandatory : false,
+        referenceContentType: matchedField?.reference_to?.[0],
+        blockType: matchedField?.blockType,
+        parentField: matchedField?.parentField
+      };
+      return newMapping;
     });
   };
 
+  const handleSubmit = () => {
+    const hasUnmappedRequiredFields = fieldMapping.some(mapping => {
+      const field = flattenedFields.find(f => f.fieldPath === mapping.contentstackField);
+      return field?.mandatory === true && mapping.contentstackField === 'skip';
+    });
+  
+    if (hasUnmappedRequiredFields) {
+      toast({
+        title: "Error",
+        description: "Please map all required fields before submitting.",
+        variant: "destructive",
+      });
+      return;
+    }
+  
+    onMappingComplete(fieldMapping);
+  };
+
   if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="p-12 text-center">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p>Loading content type schema...</p>
-          <p className="text-sm text-gray-500 mt-2">Fetching global field schemas...</p>
-        </CardContent>
-      </Card>
-    );
+    return <Card className="shadow-md"><CardContent>Loading schema...</CardContent></Card>;
+  }
+
+  if (schemaError) {
+    return <Card className="shadow-md"><CardContent>Error: {schemaError}</CardContent></Card>;
   }
 
   return (
-    <Card>
+    <Card className="shadow-md">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
-            3
-          </div>
-          Field Mapping
-          {hasMappingData && (
-            <span className="text-sm text-green-600 font-normal flex items-center gap-1">
-              <CheckCircle className="w-4 h-4" />
-              Previous mapping restored
-            </span>
-          )}
-        </CardTitle>
-        <CardDescription>
-          Map your CSV columns to Contentstack fields (including nested fields from modular blocks and global fields)
-          {config.schema && (
-            <span className="block text-green-600 text-sm mt-1">
-              ✓ Using uploaded schema with {flattenedFields.length} fields (including nested)
-            </span>
-          )}
-          <GlobalFieldWarnings warnings={fetchWarnings} />
-        </CardDescription>
+        <CardTitle>Field Mapping</CardTitle>
+        <CardDescription>Map your CSV columns to Contentstack fields.</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-6">
-          <div className="grid gap-4">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[200px]">CSV Header</TableHead>
+              <TableHead>Contentstack Field</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {csvHeaders.map((header, index) => (
-              <FieldMappingRow
-                key={header}
-                csvHeader={header}
-                mapping={mapping[index] || {
-                  csvColumn: header,
-                  contentstackField: '__skip__',
-                  fieldType: 'text',
-                  isRequired: false
-                }}
-                flattenedFields={flattenedFields}
-                onMappingUpdate={(field, value) => handleMappingUpdate(index, field, value)}
-              />
+              <TableRow key={index}>
+                <TableCell className="font-medium">{header}</TableCell>
+                <TableCell>
+                  <Select onValueChange={(value) => handleFieldChange(index, value)}>
+                    <SelectTrigger className="w-[350px]">
+                      <SelectValue placeholder="Select a field" defaultValue={fieldMapping[index]?.contentstackField} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="skip">Skip this column</SelectItem>
+                      {flattenedFields.map(field => (
+                        <SelectItem key={field.uid} value={field.fieldPath}>
+                          {field.display_name} ({field.fieldPath})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+              </TableRow>
             ))}
-          </div>
-          
-          <Button onClick={handleSubmit} className="w-full bg-blue-600 hover:bg-blue-700">
-            Complete Field Mapping
-          </Button>
-        </div>
+          </TableBody>
+        </Table>
+        <Button className="mt-4" onClick={handleSubmit}>Complete Mapping</Button>
       </CardContent>
     </Card>
   );
