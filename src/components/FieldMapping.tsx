@@ -129,7 +129,8 @@ const FieldMapping: React.FC<FieldMappingProps> = ({
           isRequired: matchedField.mandatory,
           referenceContentType: matchedField.reference_to?.[0],
           blockType: matchedField.blockType,
-          parentField: matchedField.parentField
+          parentField: matchedField.parentField,
+          selectOptions: matchedField?.selectOptions
         };
       }
 
@@ -158,7 +159,8 @@ const FieldMapping: React.FC<FieldMappingProps> = ({
         isRequired: matchedField ? matchedField.mandatory : false,
         referenceContentType: matchedField?.reference_to?.[0],
         blockType: matchedField?.blockType,
-        parentField: matchedField?.parentField
+        parentField: matchedField?.parentField,
+        selectOptions: matchedField?.selectOptions
       };
       return newMapping;
     });
@@ -202,29 +204,53 @@ const FieldMapping: React.FC<FieldMappingProps> = ({
             <TableRow>
               <TableHead className="w-[200px]">CSV Header</TableHead>
               <TableHead>Contentstack Field</TableHead>
+              <TableHead className="w-[150px]">Field Info</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {csvHeaders.map((header, index) => (
-              <TableRow key={index}>
-                <TableCell className="font-medium">{header}</TableCell>
-                <TableCell>
-                  <Select onValueChange={(value) => handleFieldChange(index, value)}>
-                    <SelectTrigger className="w-[350px]">
-                      <SelectValue placeholder="Select a field" defaultValue={fieldMapping[index]?.contentstackField} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="skip">Skip this column</SelectItem>
-                      {flattenedFields.map(field => (
-                        <SelectItem key={field.uid} value={field.fieldPath}>
-                          {field.display_name} ({field.fieldPath})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-              </TableRow>
-            ))}
+            {csvHeaders.map((header, index) => {
+              const mapping = fieldMapping[index];
+              const field = flattenedFields.find(f => f.fieldPath === mapping?.contentstackField);
+              
+              return (
+                <TableRow key={index}>
+                  <TableCell className="font-medium">{header}</TableCell>
+                  <TableCell>
+                    <Select onValueChange={(value) => handleFieldChange(index, value)}>
+                      <SelectTrigger className="w-[350px]">
+                        <SelectValue placeholder="Select a field" defaultValue={fieldMapping[index]?.contentstackField} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="skip">Skip this column</SelectItem>
+                        {flattenedFields.map(field => (
+                          <SelectItem key={field.uid} value={field.fieldPath}>
+                            {field.display_name} ({field.fieldPath})
+                            {field.data_type === 'select' && ' - Select Field'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    {field?.data_type === 'select' && field.selectOptions && (
+                      <div className="text-xs text-gray-600">
+                        <div className="font-medium">Select Options:</div>
+                        <div className="max-h-20 overflow-y-auto">
+                          {field.selectOptions.map((option, idx) => (
+                            <div key={idx} className="truncate">
+                              {option.text} ({option.value})
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {field?.mandatory && (
+                      <span className="text-xs text-red-500">Required</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
         <Button className="mt-4" onClick={handleSubmit}>Complete Mapping</Button>

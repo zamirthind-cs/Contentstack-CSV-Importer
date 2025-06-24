@@ -86,6 +86,23 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       }
     }
 
+    if (mapping.fieldType === 'select') {
+      // Validate and transform select field values
+      if (mapping.selectOptions && mapping.selectOptions.length > 0) {
+        const matchedOption = mapping.selectOptions.find(option => 
+          option.value.toLowerCase() === value.toLowerCase() || 
+          option.text.toLowerCase() === value.toLowerCase()
+        );
+        
+        if (matchedOption) {
+          return matchedOption.value;
+        } else {
+          console.warn(`Select field value "${value}" does not match any available options:`, mapping.selectOptions);
+          return null;
+        }
+      }
+    }
+
     return value;
   }, []);
 

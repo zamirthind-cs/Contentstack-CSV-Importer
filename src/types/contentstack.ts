@@ -17,11 +17,12 @@ export interface CsvData {
 export interface FieldMapping {
   csvColumn: string;
   contentstackField: string;
-  fieldType: 'text' | 'number' | 'boolean' | 'date' | 'reference' | 'file' | 'blocks' | 'global_field' | 'link';
+  fieldType: 'text' | 'number' | 'boolean' | 'date' | 'reference' | 'file' | 'blocks' | 'global_field' | 'link' | 'select';
   isRequired: boolean;
   referenceContentType?: string;
   blockType?: string;
   parentField?: string;
+  selectOptions?: SelectOption[];
 }
 
 export interface ImportResult {
@@ -41,6 +42,12 @@ export interface ContentstackField {
   reference_to?: string[];
   blocks?: BlockSchema[];
   schema?: ContentstackField[];
+  enum?: SelectOption[];
+}
+
+export interface SelectOption {
+  value: string;
+  text: string;
 }
 
 export interface BlockSchema {
@@ -58,4 +65,5 @@ export interface FlattenedField {
   fieldPath: string;
   parentField?: string;
   blockType?: string;
+  selectOptions?: SelectOption[];
 }

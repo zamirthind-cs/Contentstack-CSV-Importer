@@ -1,4 +1,3 @@
-
 import { ContentstackField, FlattenedField, BlockSchema } from '@/types/contentstack';
 
 export const flattenContentstackFields = async (
@@ -21,7 +20,8 @@ export const flattenContentstackFields = async (
         mandatory: field.mandatory,
         reference_to: field.reference_to,
         fieldPath,
-        parentField: parentField || undefined
+        parentField: parentField || undefined,
+        selectOptions: field.enum || undefined
       });
     }
     
@@ -38,7 +38,8 @@ export const flattenContentstackFields = async (
             reference_to: blockField.reference_to,
             fieldPath: blockFieldPath,
             parentField: field.uid,
-            blockType: block.uid
+            blockType: block.uid,
+            selectOptions: blockField.enum || undefined
           });
         });
       });
@@ -174,7 +175,7 @@ export const flattenContentstackFieldsSync = (fields: ContentstackField[], paren
   return flattened;
 };
 
-export const getFieldType = (dataType: string): 'text' | 'number' | 'boolean' | 'date' | 'reference' | 'file' | 'blocks' | 'global_field' | 'link' => {
+export const getFieldType = (dataType: string): 'text' | 'number' | 'boolean' | 'date' | 'reference' | 'file' | 'blocks' | 'global_field' | 'link' | 'select' => {
   switch (dataType) {
     case 'number': return 'number';
     case 'boolean': return 'boolean';
@@ -184,8 +185,28 @@ export const getFieldType = (dataType: string): 'text' | 'number' | 'boolean' | 
     case 'blocks': return 'blocks';
     case 'global_field': return 'global_field';
     case 'link': return 'link';
+    case 'select': return 'select';
     default: return 'text';
   }
+};
+
+export const validateSelectValue = (value: string, selectOptions?: { value: string; text: string }[]): string | null => {
+  if (!selectOptions || selectOptions.length === 0) {
+    return value; // Not a select field, return as-is
+  }
+  
+  // Check if the value matches any option value or text (case-insensitive)
+  const matchedOption = selectOptions.find(option => 
+    option.value.toLowerCase() === value.toLowerCase() || 
+    option.text.toLowerCase() === value.toLowerCase()
+  );
+  
+  if (matchedOption) {
+    return matchedOption.value; // Return the option value
+  }
+  
+  console.warn(`Select field value "${value}" does not match any available options:`, selectOptions);
+  return null; // Invalid option
 };
 
 export const transformNestedValue = async (
