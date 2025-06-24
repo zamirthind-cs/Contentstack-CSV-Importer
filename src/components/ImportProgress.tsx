@@ -1,10 +1,13 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { toast } from "@/components/ui/use-toast";
+import { toast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
+import { CheckCircle, XCircle, AlertTriangle, Info, Eye, Globe } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -34,8 +37,9 @@ interface ImportProgressProps {
 interface LogEntry {
   timestamp: string;
   message: string;
-  type: 'info' | 'warning' | 'error' | 'success';
+  type: 'info' | 'warning' | 'error' | 'success' | 'published';
   data?: string;
+  rowIndex?: number;
 }
 
 const ImportProgress: React.FC<ImportProgressProps> = ({
@@ -59,6 +63,36 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     log.message.toLowerCase().includes(filterText.toLowerCase()) ||
     (log.data && log.data.toLowerCase().includes(filterText.toLowerCase()))
   );
+
+  const getLogIcon = (type: LogEntry['type']) => {
+    switch (type) {
+      case 'success':
+        return <CheckCircle className="h-4 w-4 text-green-600" />;
+      case 'error':
+        return <XCircle className="h-4 w-4 text-red-600" />;
+      case 'warning':
+        return <AlertTriangle className="h-4 w-4 text-yellow-600" />;
+      case 'published':
+        return <Globe className="h-4 w-4 text-blue-600" />;
+      default:
+        return <Info className="h-4 w-4 text-blue-500" />;
+    }
+  };
+
+  const getLogBadge = (type: LogEntry['type']) => {
+    switch (type) {
+      case 'success':
+        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">SUCCESS</Badge>;
+      case 'error':
+        return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">ERROR</Badge>;
+      case 'warning':
+        return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">WARNING</Badge>;
+      case 'published':
+        return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">PUBLISHED</Badge>;
+      default:
+        return <Badge variant="secondary">INFO</Badge>;
+    }
+  };
 
   const transformValue = useCallback(async (value: string, mapping: FieldMapping): Promise<any> => {
     if (value === null || value === undefined) {
@@ -128,7 +162,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
         const csvValue = row[mapping.csvColumn];
         if (!csvValue && mapping.isRequired) {
-          addLog(`Row ${rowIndex + 1}: Required field "${mapping.contentstackField}" is missing.`, 'warning');
+          addLog(`Required field "${mapping.contentstackField}" is missing.`, 'warning', undefined, rowIndex);
           return { rowIndex, success: false, error: `Missing required field: ${mapping.contentstackField}` };
         }
 
@@ -139,7 +173,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
             entryData[mapping.contentstackField] = transformedValue;
           } else if (mapping.fieldType === 'file') {
             // Log that we're skipping file fields with just filenames
-            addLog(`Row ${rowIndex + 1}: Skipping file field "${mapping.contentstackField}" (contains filename: "${csvValue}")`, 'info');
+            addLog(`Skipping file field "${mapping.contentstackField}" (contains filename: "${csvValue}")`, 'info', undefined, rowIndex);
           }
         }
       }
@@ -161,31 +195,31 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
       if (!response.ok) {
         const errorText = await response.text();
-        addLog(`Row ${rowIndex + 1}: Error creating entry: ${errorText}`, 'error', errorText);
+        addLog(`Failed to create entry: ${errorText}`, 'error', errorText, rowIndex);
         return { rowIndex, success: false, error: errorText };
       }
 
       const responseData = await response.json();
       const entryUid = responseData.entry.uid;
-      addLog(`Row ${rowIndex + 1}: Entry created successfully with UID: ${entryUid}`, 'success');
+      addLog(`Entry created successfully with UID: ${entryUid}`, 'success', undefined, rowIndex);
 
       if (config.shouldPublish) {
         setIsPublishing(true);
         try {
           const publishResult = await publishEntry(entryUid);
           setIsPublishing(false);
-          addLog(`Row ${rowIndex + 1}: Entry published successfully`, 'success', publishResult);
+          addLog(`Entry published successfully`, 'published', publishResult, rowIndex);
           return { rowIndex, success: true, entryUid, published: true, publishResult };
         } catch (publishError: any) {
           setIsPublishing(false);
-          addLog(`Row ${rowIndex + 1}: Error publishing entry: ${publishError.message || publishError}`, 'error', publishError);
+          addLog(`Failed to publish entry: ${publishError.message || publishError}`, 'error', publishError, rowIndex);
           return { rowIndex, success: true, entryUid, published: false, error: publishError.message || publishError };
         }
       }
 
       return { rowIndex, success: true, entryUid };
     } catch (error: any) {
-      addLog(`Row ${rowIndex + 1}: Unexpected error: ${error.message || error}`, 'error', error);
+      addLog(`Unexpected error: ${error.message || error}`, 'error', error, rowIndex);
       return { rowIndex, success: false, error: error.message || error };
     }
   }, [config, fieldMapping, transformValue]);
@@ -225,42 +259,57 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     setLogs([]);
     setProgress(0);
 
+    addLog(`Starting import of ${totalRows} rows with ${mappedFieldsCount} mapped fields`, 'info');
+
     const importResults: ImportResult[] = [];
 
     for (let i = 0; i < csvData.rows.length; i++) {
       const row = csvData.rows[i];
+      addLog(`Processing row ${i + 1}...`, 'info', undefined, i);
+      
       const result = await handleCreateOrUpdateEntry(row, i);
       importResults.push(result);
 
       const currentProgress = ((i + 1) / csvData.rows.length) * 100;
       setProgress(currentProgress);
-      setResults(importResults);
+      setResults([...importResults]);
     }
+
+    const successCount = importResults.filter(r => r.success).length;
+    const publishedCount = importResults.filter(r => r.published).length;
+    const errorCount = importResults.filter(r => !r.success).length;
+
+    addLog(`Import completed: ${successCount} successful, ${publishedCount} published, ${errorCount} failed`, 
+           errorCount > 0 ? 'warning' : 'success');
 
     setIsImporting(false);
     onImportComplete(importResults);
-  }, [csvData, config, fieldMapping, onImportComplete, handleCreateOrUpdateEntry, setIsImporting]);
+  }, [csvData, config, fieldMapping, onImportComplete, handleCreateOrUpdateEntry, setIsImporting, totalRows, mappedFieldsCount]);
 
-  const addLog = (message: string, type: 'info' | 'warning' | 'error' | 'success' = 'info', data?: any) => {
-    const logEntry = {
-      timestamp: new Date().toISOString(),
+  const addLog = (message: string, type: 'info' | 'warning' | 'error' | 'success' | 'published' = 'info', data?: any, rowIndex?: number) => {
+    const logEntry: LogEntry = {
+      timestamp: new Date().toLocaleTimeString(),
       message,
       type,
-      data: data ? JSON.stringify(data, null, 2) : undefined
+      data: data ? JSON.stringify(data, null, 2) : undefined,
+      rowIndex
     };
     setLogs(prev => [...prev, logEntry]);
   };
 
   useEffect(() => {
     if (results.length > 0 && results.every(r => r.success)) {
+      const publishedCount = results.filter(r => r.published).length;
       toast({
-        title: "Import Completed",
-        description: "All entries were processed successfully.",
+        title: "Import Completed Successfully! ✅",
+        description: `All ${results.length} entries were processed successfully${publishedCount > 0 ? ` and ${publishedCount} were published` : ''}.`,
       });
     } else if (results.length > 0 && results.some(r => !r.success)) {
+      const successCount = results.filter(r => r.success).length;
+      const errorCount = results.filter(r => !r.success).length;
       toast({
-        title: "Import Completed with Errors",
-        description: "Some entries failed to import. Check the logs for details.",
+        title: "Import Completed with Issues ⚠️",
+        description: `${successCount} entries succeeded, ${errorCount} failed. Check the logs for details.`,
         variant: "destructive",
       });
     }
@@ -282,21 +331,25 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
             disabled={isImporting || isPublishing}
             onClick={startImport}
           >
-            {isImporting ? 'Importing...' : 'Start Import'}
+            {isImporting ? 'Importing...' : isPublishing ? 'Publishing...' : 'Start Import'}
           </Button>
         </div>
       </div>
 
       <div className="space-y-2">
-        <Progress value={progress} />
-        <p className="text-sm text-muted-foreground">
-          {isImporting
-            ? `Importing data... ${Math.round(progress)}%`
-            : 'Ready to import data.'}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Total rows: {totalRows}, Mapped fields: {mappedFieldsCount}
-        </p>
+        <Progress value={progress} className="h-3" />
+        <div className="flex justify-between text-sm text-muted-foreground">
+          <span>
+            {isImporting
+              ? `Importing data... ${Math.round(progress)}%`
+              : isPublishing
+              ? 'Publishing entries...'
+              : 'Ready to import data.'}
+          </span>
+          <span>
+            Total rows: {totalRows} | Mapped fields: {mappedFieldsCount}
+          </span>
+        </div>
       </div>
 
       <div>
@@ -313,27 +366,40 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
       <div className="rounded-md border">
         <Table>
-          <TableCaption>Import Logs</TableCaption>
+          <TableCaption>Import Logs - {filteredLogs.length} entries</TableCaption>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-[80px]">Row</TableHead>
               <TableHead className="w-[100px]">Time</TableHead>
+              <TableHead className="w-[100px]">Status</TableHead>
               <TableHead>Message</TableHead>
-              <TableHead className="w-[120px]">Type</TableHead>
-              <TableHead className="w-[150px]">Data</TableHead>
+              <TableHead className="w-[150px]">Details</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredLogs.map((log, index) => (
-              <TableRow key={index}>
-                <TableCell className="font-medium">{log.timestamp}</TableCell>
-                <TableCell>{log.message}</TableCell>
-                <TableCell>{log.type}</TableCell>
+              <TableRow key={index} className={log.type === 'error' ? 'bg-red-50' : log.type === 'success' ? 'bg-green-50' : log.type === 'published' ? 'bg-blue-50' : log.type === 'warning' ? 'bg-yellow-50' : ''}>
+                <TableCell className="font-medium">
+                  {log.rowIndex !== undefined ? log.rowIndex + 1 : '-'}
+                </TableCell>
+                <TableCell className="text-xs">{log.timestamp}</TableCell>
+                <TableCell>
+                  <div className="flex items-center space-x-1">
+                    {getLogIcon(log.type)}
+                    {getLogBadge(log.type)}
+                  </div>
+                </TableCell>
+                <TableCell className="max-w-md">
+                  <div className="truncate" title={log.message}>
+                    {log.message}
+                  </div>
+                </TableCell>
                 <TableCell>
                   {log.data && (
                     <Textarea
                       value={log.data}
                       readOnly
-                      className="w-full h-24 resize-none"
+                      className="w-full h-20 resize-none text-xs bg-gray-50"
                     />
                   )}
                 </TableCell>
@@ -342,8 +408,13 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
           </TableBody>
           <TableFooter>
             <TableRow>
-              <TableCell colSpan={4}>
-                {filteredLogs.length} log entries
+              <TableCell colSpan={5} className="text-center">
+                <div className="flex justify-center space-x-4 text-sm text-muted-foreground">
+                  <span className="flex items-center"><CheckCircle className="h-3 w-3 text-green-600 mr-1" /> Success: {filteredLogs.filter(l => l.type === 'success').length}</span>
+                  <span className="flex items-center"><Globe className="h-3 w-3 text-blue-600 mr-1" /> Published: {filteredLogs.filter(l => l.type === 'published').length}</span>
+                  <span className="flex items-center"><XCircle className="h-3 w-3 text-red-600 mr-1" /> Errors: {filteredLogs.filter(l => l.type === 'error').length}</span>
+                  <span className="flex items-center"><AlertTriangle className="h-3 w-3 text-yellow-600 mr-1" /> Warnings: {filteredLogs.filter(l => l.type === 'warning').length}</span>
+                </div>
               </TableCell>
             </TableRow>
           </TableFooter>
