@@ -9,7 +9,7 @@ A simple CSV import interface built with:
 - Vite
 - TypeScript
 - Tailwind CSS
-- [shadcn/ui](https://ui.shadcn.com/)
+- shadcn/ui components
 
 ---
 
@@ -26,8 +26,6 @@ A simple CSV import interface built with:
    - [5. Upload CSV File](#5--upload-csv-file)
    - [6. Field Mapping](#6-field-mapping)
    - [7. Import Data](#7-import-data)
-
-
 
 ---
 
@@ -151,7 +149,7 @@ Upload the CSV file that contains the data you want to import into Contentstack.
 
 - 🧹 **Clean your CSV**  
   Remove any columns that you don’t intend to map or import. This helps reduce confusion and avoids unintended data issues during the field mapping step.
- For user readability it is also easier to reorganize the columns to match the order they would appear in the fields of the content type.
+  For user readability it is also easier to reorganize the columns to match the order they would appear in the fields of the content type.
 
 - 📎 **Supported format**: CSV with comma-separated values (`.csv` extension)
 
@@ -230,5 +228,3 @@ You can:
 - Use the logged UID to quickly locate specific entries.
 
 ---
-
-
