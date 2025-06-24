@@ -65,6 +65,16 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
       return null;
     }
 
+    // Handle file fields - skip if it's just a filename
+    if (mapping.fieldType === 'file') {
+      // If it's just a filename (no actual file upload), skip this field
+      if (typeof value === 'string' && value.trim() !== '') {
+        console.warn(`File field "${mapping.contentstackField}" contains filename "${value}" but no actual file upload. Skipping this field.`);
+        return null;
+      }
+      return null;
+    }
+
     if (mapping.fieldType === 'number') {
       const parsedValue = Number(value);
       return isNaN(parsedValue) ? null : parsedValue;
@@ -123,7 +133,14 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         }
 
         if (csvValue) {
-          entryData[mapping.contentstackField] = await transformValue(csvValue, mapping);
+          const transformedValue = await transformValue(csvValue, mapping);
+          // Only add the field if the transformed value is not null
+          if (transformedValue !== null) {
+            entryData[mapping.contentstackField] = transformedValue;
+          } else if (mapping.fieldType === 'file') {
+            // Log that we're skipping file fields with just filenames
+            addLog(`Row ${rowIndex + 1}: Skipping file field "${mapping.contentstackField}" (contains filename: "${csvValue}")`, 'info');
+          }
         }
       }
 
