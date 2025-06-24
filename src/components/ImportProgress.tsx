@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
@@ -347,7 +346,29 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
               : 'Ready to import data.'}
           </span>
           <span>
-            Total rows: {totalRows} | Mapped fields: {mappedFieldsCount}
+            Total CSV rows: {totalRows} | Mapped fields: {mappedFieldsCount}
+          </span>
+        </div>
+      </div>
+
+      {/* Summary Statistics - moved to top */}
+      <div className="bg-gray-50 p-4 rounded-lg border">
+        <div className="flex justify-center space-x-6 text-sm">
+          <span className="flex items-center">
+            <CheckCircle className="h-4 w-4 text-green-600 mr-2" /> 
+            Success: {filteredLogs.filter(l => l.type === 'success').length}
+          </span>
+          <span className="flex items-center">
+            <Globe className="h-4 w-4 text-blue-600 mr-2" /> 
+            Published: {filteredLogs.filter(l => l.type === 'published').length}
+          </span>
+          <span className="flex items-center">
+            <XCircle className="h-4 w-4 text-red-600 mr-2" /> 
+            Errors: {filteredLogs.filter(l => l.type === 'error').length}
+          </span>
+          <span className="flex items-center">
+            <AlertTriangle className="h-4 w-4 text-yellow-600 mr-2" /> 
+            Warnings: {filteredLogs.filter(l => l.type === 'warning').length}
           </span>
         </div>
       </div>
@@ -406,18 +427,6 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
               </TableRow>
             ))}
           </TableBody>
-          <TableFooter>
-            <TableRow>
-              <TableCell colSpan={5} className="text-center">
-                <div className="flex justify-center space-x-4 text-sm text-muted-foreground">
-                  <span className="flex items-center"><CheckCircle className="h-3 w-3 text-green-600 mr-1" /> Success: {filteredLogs.filter(l => l.type === 'success').length}</span>
-                  <span className="flex items-center"><Globe className="h-3 w-3 text-blue-600 mr-1" /> Published: {filteredLogs.filter(l => l.type === 'published').length}</span>
-                  <span className="flex items-center"><XCircle className="h-3 w-3 text-red-600 mr-1" /> Errors: {filteredLogs.filter(l => l.type === 'error').length}</span>
-                  <span className="flex items-center"><AlertTriangle className="h-3 w-3 text-yellow-600 mr-1" /> Warnings: {filteredLogs.filter(l => l.type === 'warning').length}</span>
-                </div>
-              </TableCell>
-            </TableRow>
-          </TableFooter>
         </Table>
       </div>
     </div>
