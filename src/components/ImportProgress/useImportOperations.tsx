@@ -67,17 +67,44 @@ export const useImportOperations = (
 
     if (mapping.fieldType === 'select') {
       if (mapping.selectOptions && mapping.selectOptions.length > 0) {
-        const matchedOption = mapping.selectOptions.find(option => 
-          option.value.toLowerCase() === value.toLowerCase() || 
-          option.text.toLowerCase() === value.toLowerCase()
+        console.log(`🔍 SELECT DEBUG: Processing select field "${mapping.contentstackField}"`);
+        console.log(`🔍 SELECT DEBUG: CSV value: "${value}"`);
+        console.log(`🔍 SELECT DEBUG: Available options:`, mapping.selectOptions);
+        
+        // Try exact match first
+        let matchedOption = mapping.selectOptions.find(option => 
+          option.value === value || option.text === value
         );
         
+        if (!matchedOption) {
+          // Try case-insensitive match
+          matchedOption = mapping.selectOptions.find(option => 
+            option.value.toLowerCase() === value.toLowerCase() || 
+            option.text.toLowerCase() === value.toLowerCase()
+          );
+        }
+        
+        if (!matchedOption) {
+          // Try partial match
+          matchedOption = mapping.selectOptions.find(option => 
+            option.value.toLowerCase().includes(value.toLowerCase()) || 
+            option.text.toLowerCase().includes(value.toLowerCase()) ||
+            value.toLowerCase().includes(option.value.toLowerCase()) ||
+            value.toLowerCase().includes(option.text.toLowerCase())
+          );
+        }
+        
         if (matchedOption) {
+          console.log(`🔍 SELECT DEBUG: Found match: "${matchedOption.value}" (${matchedOption.text})`);
           return matchedOption.value;
         } else {
-          console.warn(`Select field value "${value}" does not match any available options:`, mapping.selectOptions);
+          console.warn(`🔍 SELECT DEBUG: No match found for "${value}" in select field "${mapping.contentstackField}"`);
+          console.warn(`🔍 SELECT DEBUG: Available options:`, mapping.selectOptions.map(opt => `"${opt.value}" (${opt.text})`));
           return null;
         }
+      } else {
+        console.warn(`🔍 SELECT DEBUG: No select options available for field "${mapping.contentstackField}"`);
+        return value; // Return as-is if no options defined
       }
     }
 
@@ -136,17 +163,23 @@ export const useImportOperations = (
             if (mapping.fieldType === 'file') {
               addLog(`Skipping file field "${mapping.contentstackField}" (contains filename: "${csvValue}")`, 'info', undefined, rowIndex);
             } else if (mapping.fieldType === 'select') {
-              addLog(`Skipping select field "${mapping.contentstackField}" (invalid option: "${csvValue}")`, 'warning', undefined, rowIndex);
+              addLog(`Skipping select field "${mapping.contentstackField}" (no matching option for: "${csvValue}")`, 'warning', undefined, rowIndex);
             }
             continue;
           }
 
+          // Handle global fields - wrap in nested object structure
           if (mapping.fieldType === 'global_field') {
             const globalFieldData = { [mapping.contentstackField.split('.').pop()!]: transformedValue };
             entryData = mergeNestedData(entryData, globalFieldData, mapping.contentstackField.split('.')[0]);
             addLog(`Global field "${mapping.contentstackField}" structured as nested object`, 'info', JSON.stringify(globalFieldData), rowIndex);
           } else {
             entryData = mergeNestedData(entryData, transformedValue, mapping.contentstackField);
+          }
+          
+          // Add specific logging for select fields
+          if (mapping.fieldType === 'select') {
+            addLog(`Select field "${mapping.contentstackField}" set to: "${transformedValue}"`, 'info', undefined, rowIndex);
           }
         }
       }
