@@ -1,3 +1,4 @@
+
 import { ContentstackField, FlattenedField, BlockSchema } from '@/types/contentstack';
 
 export const flattenContentstackFields = async (
@@ -221,17 +222,19 @@ export const transformNestedValue = async (
   if (!value || value.trim() === '') return null;
   
   console.log(`🔧 TRANSFORM DEBUG: Processing fieldPath: ${fieldPath}`);
-  console.log(`🔧 TRANSFORM DEBUG: Value: ${value}`);
+  console.log(`🔧 TRANSFORM DEBUG: Raw value: "${value}"`);
+  console.log(`🔧 TRANSFORM DEBUG: Field mapping:`, fieldMapping);
   
-  // Just transform the value, let mergeNestedData handle the structure
+  // Transform the value using the provided transform function
   const transformedValue = await transformValue(value, fieldMapping);
   console.log(`🔧 TRANSFORM DEBUG: Transformed value:`, transformedValue);
+  
   return transformedValue;
 };
 
 export const mergeNestedData = (existingData: any, newData: any, fieldPath: string): any => {
-  console.log(`🔄 MERGE DEBUG: Starting merge for fieldPath: ${fieldPath}`);
-  console.log(`🔄 MERGE DEBUG: New data:`, newData);
+  console.log(`🔄 MERGE DEBUG: === Starting merge for fieldPath: ${fieldPath} ===`);
+  console.log(`🔄 MERGE DEBUG: New data type:`, typeof newData, newData);
   console.log(`🔄 MERGE DEBUG: Existing data:`, existingData);
   
   if (newData === null || newData === undefined) {
@@ -240,36 +243,50 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
   }
   
   const pathParts = fieldPath.split('.');
-  const result = existingData ? { ...existingData } : {};
+  console.log(`🔄 MERGE DEBUG: Path parts:`, pathParts);
+  
+  // Start with existing data or empty object
+  const result = existingData ? JSON.parse(JSON.stringify(existingData)) : {};
   
   if (pathParts.length === 1) {
-    // Simple field
-    console.log(`🔄 MERGE DEBUG: Simple field assignment`);
+    // Simple field - direct assignment
+    console.log(`🔄 MERGE DEBUG: Simple field assignment for: ${pathParts[0]}`);
     result[pathParts[0]] = newData;
   } else {
-    // Nested field - build the structure properly
-    console.log(`🔄 MERGE DEBUG: Nested field processing for path: ${fieldPath}`);
+    // Nested field - build the structure
+    console.log(`🔄 MERGE DEBUG: Building nested structure for path: ${fieldPath}`);
     
     let current = result;
     
     // Navigate/create the nested structure up to the second-to-last part
     for (let i = 0; i < pathParts.length - 1; i++) {
       const pathPart = pathParts[i];
-      console.log(`🔄 MERGE DEBUG: Processing path part ${i}: ${pathPart}`);
+      console.log(`🔄 MERGE DEBUG: Processing path part ${i}: "${pathPart}"`);
       
-      if (!current[pathPart] || typeof current[pathPart] !== 'object') {
+      // Check if current path part exists and is an object
+      if (!current[pathPart]) {
+        console.log(`🔄 MERGE DEBUG: Creating new object for: "${pathPart}"`);
         current[pathPart] = {};
-        console.log(`🔄 MERGE DEBUG: Created new object for: ${pathPart}`);
+      } else if (typeof current[pathPart] !== 'object' || current[pathPart] === null) {
+        console.log(`🔄 MERGE DEBUG: Overwriting non-object value for: "${pathPart}"`);
+        current[pathPart] = {};
+      } else {
+        console.log(`🔄 MERGE DEBUG: Using existing object for: "${pathPart}"`);
       }
+      
       current = current[pathPart];
+      console.log(`🔄 MERGE DEBUG: Current structure after part ${i}:`, current);
     }
     
     // Set the final value
     const finalKey = pathParts[pathParts.length - 1];
+    console.log(`🔄 MERGE DEBUG: Setting final key: "${finalKey}" with value:`, newData);
     current[finalKey] = newData;
-    console.log(`🔄 MERGE DEBUG: Set final value for key: ${finalKey} =`, newData);
   }
   
-  console.log(`🔄 MERGE DEBUG: Final merged result:`, JSON.stringify(result, null, 2));
+  console.log(`🔄 MERGE DEBUG: === Final merged result ===`);
+  console.log(JSON.stringify(result, null, 2));
+  console.log(`🔄 MERGE DEBUG: === End merge ===`);
+  
   return result;
 };
