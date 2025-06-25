@@ -224,43 +224,41 @@ export const transformNestedValue = async (
   console.log(`🔧 TRANSFORM DEBUG: Processing fieldPath: ${fieldPath}`);
   console.log(`🔧 TRANSFORM DEBUG: Value: ${value}`);
   
-  const pathParts = fieldPath.split('.');
-  
-  // For simple fields, just transform the value
-  if (pathParts.length === 1) {
-    console.log(`🔧 TRANSFORM DEBUG: Simple field processing`);
-    return await transformValue(value, fieldMapping);
-  }
-  
-  // For nested fields (global fields), we need to return the transformed value
-  // The merging will be handled by mergeNestedData
-  console.log(`🔧 TRANSFORM DEBUG: Nested field processing`);
-  return await transformValue(value, fieldMapping);
+  // Just transform the value, let mergeNestedData handle the structure
+  const transformedValue = await transformValue(value, fieldMapping);
+  console.log(`🔧 TRANSFORM DEBUG: Transformed value:`, transformedValue);
+  return transformedValue;
 };
 
 export const mergeNestedData = (existingData: any, newData: any, fieldPath: string): any => {
   console.log(`🔄 MERGE DEBUG: Starting merge for fieldPath: ${fieldPath}`);
   console.log(`🔄 MERGE DEBUG: New data:`, newData);
+  console.log(`🔄 MERGE DEBUG: Existing data:`, existingData);
+  
+  if (newData === null || newData === undefined) {
+    console.log(`🔄 MERGE DEBUG: Skipping null/undefined value`);
+    return existingData;
+  }
   
   const pathParts = fieldPath.split('.');
-  const result = { ...existingData };
+  const result = existingData ? { ...existingData } : {};
   
   if (pathParts.length === 1) {
     // Simple field
     console.log(`🔄 MERGE DEBUG: Simple field assignment`);
     result[pathParts[0]] = newData;
   } else {
-    // Nested field - build the structure
+    // Nested field - build the structure properly
     console.log(`🔄 MERGE DEBUG: Nested field processing for path: ${fieldPath}`);
     
     let current = result;
     
-    // Navigate/create the nested structure
+    // Navigate/create the nested structure up to the second-to-last part
     for (let i = 0; i < pathParts.length - 1; i++) {
       const pathPart = pathParts[i];
-      console.log(`🔄 MERGE DEBUG: Processing path part: ${pathPart}`);
+      console.log(`🔄 MERGE DEBUG: Processing path part ${i}: ${pathPart}`);
       
-      if (!current[pathPart]) {
+      if (!current[pathPart] || typeof current[pathPart] !== 'object') {
         current[pathPart] = {};
         console.log(`🔄 MERGE DEBUG: Created new object for: ${pathPart}`);
       }
@@ -270,7 +268,7 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
     // Set the final value
     const finalKey = pathParts[pathParts.length - 1];
     current[finalKey] = newData;
-    console.log(`🔄 MERGE DEBUG: Set final value for key: ${finalKey} = ${newData}`);
+    console.log(`🔄 MERGE DEBUG: Set final value for key: ${finalKey} =`, newData);
   }
   
   console.log(`🔄 MERGE DEBUG: Final merged result:`, JSON.stringify(result, null, 2));
