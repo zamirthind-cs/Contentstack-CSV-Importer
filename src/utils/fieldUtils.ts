@@ -1,4 +1,3 @@
-
 import { ContentstackField, FlattenedField, BlockSchema } from '@/types/contentstack';
 
 export const flattenContentstackFields = async (
