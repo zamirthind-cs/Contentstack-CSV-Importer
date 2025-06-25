@@ -222,67 +222,25 @@ export const transformNestedValue = async (
   if (!value || value.trim() === '') return null;
   
   console.log(`🔧 TRANSFORM DEBUG: Processing fieldPath: ${fieldPath}`);
-  console.log(`🔧 TRANSFORM DEBUG: Field mapping:`, fieldMapping);
   console.log(`🔧 TRANSFORM DEBUG: Value: ${value}`);
   
   const pathParts = fieldPath.split('.');
-  console.log(`🔧 TRANSFORM DEBUG: Path parts:`, pathParts);
   
-  // Handle simple fields
+  // For simple fields, just transform the value
   if (pathParts.length === 1) {
     console.log(`🔧 TRANSFORM DEBUG: Simple field processing`);
     return await transformValue(value, fieldMapping);
   }
   
-  // Handle modular blocks within global fields: globalField.modular_blocks.blockType.fieldName
-  if (pathParts.length === 4 && pathParts[1] === 'modular_blocks' && fieldMapping.blockType) {
-    console.log(`🔧 TRANSFORM DEBUG: Global field block processing`);
-    const transformedValue = await transformValue(value, fieldMapping);
-    
-    return {
-      isGlobalFieldBlock: true,
-      globalFieldName: pathParts[0],
-      blockType: fieldMapping.blockType,
-      fieldName: pathParts[3],
-      value: transformedValue
-    };
-  }
-  
-  // Handle direct modular blocks: fieldName.blockType.fieldName
-  if (pathParts.length === 3 && fieldMapping.blockType) {
-    console.log(`🔧 TRANSFORM DEBUG: Direct modular block processing`);
-    const transformedValue = await transformValue(value, fieldMapping);
-    
-    return {
-      blockType: fieldMapping.blockType,
-      fieldName: pathParts[2],
-      value: transformedValue
-    };
-  }
-  
-  // Handle global field nested values (non-block) - THIS IS THE KEY FIX
-  if (pathParts.length >= 2 && !fieldMapping.blockType) {
-    console.log(`🔧 TRANSFORM DEBUG: Global field nested value processing`);
-    const transformedValue = await transformValue(value, fieldMapping);
-    const result = {
-      fieldName: pathParts[pathParts.length - 1],
-      value: transformedValue,
-      isGlobalField: true,
-      globalFieldName: pathParts[0],
-      nestedPath: pathParts.slice(1)
-    };
-    console.log(`🔧 TRANSFORM DEBUG: Transformed result:`, result);
-    return result;
-  }
-  
-  console.log(`🔧 TRANSFORM DEBUG: Fallback to simple transform`);
+  // For nested fields (global fields), we need to return the transformed value
+  // The merging will be handled by mergeNestedData
+  console.log(`🔧 TRANSFORM DEBUG: Nested field processing`);
   return await transformValue(value, fieldMapping);
 };
 
 export const mergeNestedData = (existingData: any, newData: any, fieldPath: string): any => {
   console.log(`🔄 MERGE DEBUG: Starting merge for fieldPath: ${fieldPath}`);
-  console.log(`🔄 MERGE DEBUG: Existing data:`, JSON.stringify(existingData, null, 2));
-  console.log(`🔄 MERGE DEBUG: New data:`, JSON.stringify(newData, null, 2));
+  console.log(`🔄 MERGE DEBUG: New data:`, newData);
   
   const pathParts = fieldPath.split('.');
   const result = { ...existingData };
@@ -291,76 +249,28 @@ export const mergeNestedData = (existingData: any, newData: any, fieldPath: stri
     // Simple field
     console.log(`🔄 MERGE DEBUG: Simple field assignment`);
     result[pathParts[0]] = newData;
-  } else if (newData.isGlobalFieldBlock) {
-    // Global field with modular blocks: globalField.modular_blocks.blockType.fieldName
-    console.log(`🔄 MERGE DEBUG: Global field block processing`);
-    const globalFieldName = newData.globalFieldName;
-    const blockType = newData.blockType;
-    const fieldName = newData.fieldName;
+  } else {
+    // Nested field - build the structure
+    console.log(`🔄 MERGE DEBUG: Nested field processing for path: ${fieldPath}`);
     
-    if (!result[globalFieldName] || typeof result[globalFieldName] === 'string') {
-      result[globalFieldName] = {};
-    }
+    let current = result;
     
-    if (!result[globalFieldName].modular_blocks) {
-      result[globalFieldName].modular_blocks = [];
-    }
-    
-    let existingBlock = result[globalFieldName].modular_blocks.find((block: any) => block[blockType]);
-    if (!existingBlock) {
-      existingBlock = { [blockType]: {} };
-      result[globalFieldName].modular_blocks.push(existingBlock);
-    }
-    
-    existingBlock[blockType][fieldName] = newData.value;
-  } else if (pathParts.length === 3 && newData.blockType) {
-    // Direct modular block field: fieldName.blockType.fieldName
-    console.log(`🔄 MERGE DEBUG: Direct modular block processing`);
-    const [fieldName, blockType, blockFieldName] = pathParts;
-    
-    if (!result[fieldName]) {
-      result[fieldName] = [];
-    }
-    
-    let existingBlock = result[fieldName].find((block: any) => Object.keys(block)[0] === blockType);
-    if (!existingBlock) {
-      existingBlock = { [blockType]: {} };
-      result[fieldName].push(existingBlock);
-    }
-    
-    existingBlock[blockType][blockFieldName] = newData.value;
-  } else if (pathParts.length >= 2 && newData.isGlobalField) {
-    // Global field: globalFieldName.fieldName (can be deeper)
-    console.log(`🔄 MERGE DEBUG: Global field nested processing`);
-    const globalFieldName = newData.globalFieldName;
-    const nestedPath = newData.nestedPath;
-    
-    console.log(`🔄 MERGE DEBUG: Global field name: ${globalFieldName}`);
-    console.log(`🔄 MERGE DEBUG: Nested path:`, nestedPath);
-    
-    if (!result[globalFieldName] || typeof result[globalFieldName] === 'string') {
-      console.log(`🔄 MERGE DEBUG: Initializing global field as object`);
-      result[globalFieldName] = {};
-    }
-    
-    // Build the nested structure
-    let current = result[globalFieldName];
-    console.log(`🔄 MERGE DEBUG: Starting nested path traversal`);
-    
-    for (let i = 0; i < nestedPath.length - 1; i++) {
-      console.log(`🔄 MERGE DEBUG: Processing nested path part: ${nestedPath[i]}`);
-      if (!current[nestedPath[i]]) {
-        current[nestedPath[i]] = {};
+    // Navigate/create the nested structure
+    for (let i = 0; i < pathParts.length - 1; i++) {
+      const pathPart = pathParts[i];
+      console.log(`🔄 MERGE DEBUG: Processing path part: ${pathPart}`);
+      
+      if (!current[pathPart]) {
+        current[pathPart] = {};
+        console.log(`🔄 MERGE DEBUG: Created new object for: ${pathPart}`);
       }
-      current = current[nestedPath[i]];
+      current = current[pathPart];
     }
     
     // Set the final value
-    const finalKey = nestedPath[nestedPath.length - 1];
-    console.log(`🔄 MERGE DEBUG: Setting final value for key: ${finalKey}`);
-    current[finalKey] = newData.value;
-    
-    console.log(`🔄 MERGE DEBUG: Final global field structure:`, JSON.stringify(result[globalFieldName], null, 2));
+    const finalKey = pathParts[pathParts.length - 1];
+    current[finalKey] = newData;
+    console.log(`🔄 MERGE DEBUG: Set final value for key: ${finalKey} = ${newData}`);
   }
   
   console.log(`🔄 MERGE DEBUG: Final merged result:`, JSON.stringify(result, null, 2));
