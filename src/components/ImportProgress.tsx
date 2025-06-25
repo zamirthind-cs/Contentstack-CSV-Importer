@@ -180,8 +180,16 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
             continue;
           }
 
-          // Merge the transformed value into the entry data
-          entryData = mergeNestedData(entryData, transformedValue, mapping.contentstackField);
+          // Special handling for global fields - they need to be wrapped in an object structure
+          if (mapping.fieldType === 'global_field') {
+            // For global fields, we need to create a nested structure
+            const globalFieldData = { [mapping.contentstackField.split('.').pop()!]: transformedValue };
+            entryData = mergeNestedData(entryData, globalFieldData, mapping.contentstackField.split('.')[0]);
+            addLog(`Global field "${mapping.contentstackField}" structured as nested object`, 'info', JSON.stringify(globalFieldData), rowIndex);
+          } else {
+            // Merge the transformed value into the entry data
+            entryData = mergeNestedData(entryData, transformedValue, mapping.contentstackField);
+          }
         }
       }
 
