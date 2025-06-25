@@ -156,6 +156,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
     try {
       let entryData: Record<string, any> = {};
 
+      // Process each field mapping
       for (const mapping of fieldMapping) {
         if (mapping.contentstackField === 'skip') continue;
 
@@ -167,15 +168,51 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
 
         if (csvValue) {
           const transformedValue = await transformValue(csvValue, mapping);
-          // Only add the field if the transformed value is not null
-          if (transformedValue !== null) {
-            entryData[mapping.contentstackField] = transformedValue;
-          } else if (mapping.fieldType === 'file') {
-            // Log that we're skipping file fields with just filenames
-            addLog(`Skipping file field "${mapping.contentstackField}" (contains filename: "${csvValue}")`, 'info', undefined, rowIndex);
+          
+          // Skip null values (like file fields with just filenames)
+          if (transformedValue === null) {
+            if (mapping.fieldType === 'file') {
+              addLog(`Skipping file field "${mapping.contentstackField}" (contains filename: "${csvValue}")`, 'info', undefined, rowIndex);
+            } else if (mapping.fieldType === 'select') {
+              addLog(`Skipping select field "${mapping.contentstackField}" (invalid option: "${csvValue}")`, 'warning', undefined, rowIndex);
+            }
+            continue;
+          }
+
+          // Handle nested field paths (like global fields)
+          const fieldPath = mapping.contentstackField;
+          const pathParts = fieldPath.split('.');
+          
+          if (pathParts.length === 1) {
+            // Simple field
+            entryData[fieldPath] = transformedValue;
+          } else if (pathParts.length === 2) {
+            // Global field or nested field: globalField.fieldName
+            const [parentField, childField] = pathParts;
+            
+            if (!entryData[parentField]) {
+              entryData[parentField] = {};
+            }
+            
+            entryData[parentField][childField] = transformedValue;
+            addLog(`Setting nested field: ${parentField}.${childField} = ${transformedValue}`, 'info', undefined, rowIndex);
+          } else {
+            // Deeper nesting - handle generically
+            let current = entryData;
+            for (let i = 0; i < pathParts.length - 1; i++) {
+              if (!current[pathParts[i]]) {
+                current[pathParts[i]] = {};
+              }
+              current = current[pathParts[i]];
+            }
+            current[pathParts[pathParts.length - 1]] = transformedValue;
+            addLog(`Setting nested field: ${fieldPath} = ${transformedValue}`, 'info', undefined, rowIndex);
           }
         }
       }
+
+      // Log the final entry data structure for debugging
+      addLog(`Entry data structure: ${JSON.stringify(entryData, null, 2)}`, 'info', entryData, rowIndex);
 
       const url = `${config.host}/v3/content_types/${config.contentType}/entries`;
       const headers = {

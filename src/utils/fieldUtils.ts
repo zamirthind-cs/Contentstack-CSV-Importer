@@ -1,3 +1,4 @@
+
 import { ContentstackField, FlattenedField, BlockSchema } from '@/types/contentstack';
 
 export const flattenContentstackFields = async (
@@ -56,7 +57,10 @@ export const flattenContentstackFields = async (
         // Need to fetch the global field schema
         try {
           console.log(`Fetching global field schema for: ${field.reference_to}`);
-          const response = await fetch(`${config.host}/v3/global_fields/${field.reference_to}`, {
+          
+          // For global fields, we need to use a different endpoint
+          const globalFieldUid = Array.isArray(field.reference_to) ? field.reference_to[0] : field.reference_to;
+          const response = await fetch(`${config.host}/v3/global_fields/${globalFieldUid}`, {
             headers: {
               'api_key': config.apiKey,
               'authorization': config.managementToken,
@@ -67,10 +71,10 @@ export const flattenContentstackFields = async (
           if (response.ok) {
             const data = await response.json();
             globalFieldSchema = data.global_field?.schema || [];
-            console.log(`Successfully fetched schema for ${field.reference_to}, found ${globalFieldSchema.length} fields`);
+            console.log(`Successfully fetched schema for ${globalFieldUid}, found ${globalFieldSchema.length} fields`);
           } else {
             const errorText = await response.text();
-            console.warn(`Failed to fetch global field schema for: ${field.reference_to}, status: ${response.status}, error: ${errorText}`);
+            console.warn(`Failed to fetch global field schema for: ${globalFieldUid}, status: ${response.status}, error: ${errorText}`);
             
             // Add a more descriptive error message based on status code
             let errorDescription = 'schema unavailable';
