@@ -23,6 +23,7 @@ import {
   FieldMapping,
   ImportResult
 } from '@/types/contentstack';
+import { transformNestedValue, mergeNestedData } from '@/utils/fieldUtils';
 
 interface ImportProgressProps {
   csvData: CsvData;
@@ -167,7 +168,7 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
         }
 
         if (csvValue) {
-          const transformedValue = await transformValue(csvValue, mapping);
+          const transformedValue = await transformNestedValue(csvValue, mapping.contentstackField, mapping, transformValue);
           
           // Skip null values (like file fields with just filenames)
           if (transformedValue === null) {
@@ -179,40 +180,13 @@ const ImportProgress: React.FC<ImportProgressProps> = ({
             continue;
           }
 
-          // Handle nested field paths (like global fields)
-          const fieldPath = mapping.contentstackField;
-          const pathParts = fieldPath.split('.');
-          
-          if (pathParts.length === 1) {
-            // Simple field
-            entryData[fieldPath] = transformedValue;
-          } else if (pathParts.length === 2) {
-            // Global field or nested field: globalField.fieldName
-            const [parentField, childField] = pathParts;
-            
-            if (!entryData[parentField]) {
-              entryData[parentField] = {};
-            }
-            
-            entryData[parentField][childField] = transformedValue;
-            addLog(`Setting nested field: ${parentField}.${childField} = ${transformedValue}`, 'info', undefined, rowIndex);
-          } else {
-            // Deeper nesting - handle generically
-            let current = entryData;
-            for (let i = 0; i < pathParts.length - 1; i++) {
-              if (!current[pathParts[i]]) {
-                current[pathParts[i]] = {};
-              }
-              current = current[pathParts[i]];
-            }
-            current[pathParts[pathParts.length - 1]] = transformedValue;
-            addLog(`Setting nested field: ${fieldPath} = ${transformedValue}`, 'info', undefined, rowIndex);
-          }
+          // Merge the transformed value into the entry data
+          entryData = mergeNestedData(entryData, transformedValue, mapping.contentstackField);
         }
       }
 
       // Log the final entry data structure for debugging
-      addLog(`Entry data structure: ${JSON.stringify(entryData, null, 2)}`, 'info', entryData, rowIndex);
+      addLog(`Entry data structure: ${JSON.stringify(entryData, null, 2)}`, 'info', JSON.stringify(entryData, null, 2), rowIndex);
 
       const url = `${config.host}/v3/content_types/${config.contentType}/entries`;
       const headers = {
