@@ -1,4 +1,3 @@
-
 import { useState, useCallback } from 'react';
 import { ContentstackConfig, CsvData, FieldMapping, ImportResult } from '@/types/contentstack';
 import { transformNestedValue, mergeNestedData } from '@/utils/fieldUtils';
@@ -30,6 +29,121 @@ export const useImportOperations = (
     };
     setLogs(prev => [...prev, logEntry]);
   };
+
+  const findExistingEntry = useCallback(async (entryData: Record<string, any>, rowIndex: number): Promise<any> => {
+    try {
+      // Try to find by title first (most common unique identifier)
+      const titleField = entryData.title || entryData.name || entryData.slug;
+      
+      if (!titleField) {
+        addLog('No unique identifier found (title/name/slug), will create new entry', 'info', undefined, rowIndex);
+        return null;
+      }
+
+      const searchUrl = `${config.host}/v3/content_types/${config.contentType}/entries?query={"title":"${titleField}"}`;
+      const headers = {
+        'api_key': config.apiKey,
+        'authorization': config.managementToken,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch(searchUrl, {
+        method: 'GET',
+        headers: headers
+      });
+
+      if (!response.ok) {
+        addLog('Failed to search for existing entries, will create new entry', 'warning', undefined, rowIndex);
+        return null;
+      }
+
+      const searchResult = await response.json();
+      
+      if (searchResult.entries && searchResult.entries.length > 0) {
+        const existingEntry = searchResult.entries[0];
+        addLog(`Found existing entry with UID: ${existingEntry.uid}`, 'info', undefined, rowIndex);
+        return existingEntry;
+      }
+
+      return null;
+    } catch (error) {
+      addLog('Error searching for existing entries, will create new entry', 'warning', error, rowIndex);
+      return null;
+    }
+  }, [config]);
+
+  const compareEntryData = useCallback((existingData: any, newData: any): boolean => {
+    // Simple comparison - check if any field values are different
+    for (const key in newData) {
+      if (newData[key] !== existingData[key]) {
+        // For nested objects, do a shallow comparison
+        if (typeof newData[key] === 'object' && typeof existingData[key] === 'object') {
+          if (JSON.stringify(newData[key]) !== JSON.stringify(existingData[key])) {
+            return false; // Data is different
+          }
+        } else {
+          return false; // Data is different
+        }
+      }
+    }
+    return true; // Data is the same
+  }, []);
+
+  const updateExistingEntry = useCallback(async (entryUid: string, entryData: Record<string, any>, rowIndex: number): Promise<any> => {
+    try {
+      const updateUrl = `${config.host}/v3/content_types/${config.contentType}/entries/${entryUid}`;
+      const headers = {
+        'api_key': config.apiKey,
+        'authorization': config.managementToken,
+        'Content-Type': 'application/json'
+      };
+
+      const entryPayload = { entry: entryData };
+
+      const response = await fetch(updateUrl, {
+        method: 'PUT',
+        headers: headers,
+        body: JSON.stringify(entryPayload)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Error updating entry: ${errorText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      throw error;
+    }
+  }, [config]);
+
+  const createNewEntry = useCallback(async (entryData: Record<string, any>, rowIndex: number): Promise<any> => {
+    try {
+      const url = `${config.host}/v3/content_types/${config.contentType}/entries`;
+      const headers = {
+        'api_key': config.apiKey,
+        'authorization': config.managementToken,
+        'Content-Type': 'application/json'
+      };
+
+      const entryPayload = { entry: entryData };
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(entryPayload)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Error creating entry: ${errorText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      throw error;
+    }
+  }, [config]);
 
   const transformValue = useCallback(async (value: string, mapping: FieldMapping): Promise<any> => {
     if (value === null || value === undefined) {
@@ -186,48 +300,52 @@ export const useImportOperations = (
 
       addLog(`Entry data structure: ${JSON.stringify(entryData, null, 2)}`, 'info', JSON.stringify(entryData, null, 2), rowIndex);
 
-      const url = `${config.host}/v3/content_types/${config.contentType}/entries`;
-      const headers = {
-        'api_key': config.apiKey,
-        'authorization': config.managementToken,
-        'Content-Type': 'application/json'
-      };
+      // Check if entry already exists
+      const existingEntry = await findExistingEntry(entryData, rowIndex);
+      
+      let responseData;
+      let isUpdate = false;
 
-      const entryPayload = { entry: entryData };
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(entryPayload)
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        addLog(`Failed to create entry: ${errorText}`, 'error', errorText, rowIndex);
-        return { rowIndex, success: false, error: errorText };
+      if (existingEntry) {
+        // Compare data to see if update is needed
+        const isSameData = compareEntryData(existingEntry, entryData);
+        
+        if (isSameData) {
+          addLog(`Entry already exists with same data, skipping`, 'info', undefined, rowIndex);
+          return { rowIndex, success: true, entryUid: existingEntry.uid, skipped: true };
+        } else {
+          // Update existing entry
+          addLog(`Updating existing entry with UID: ${existingEntry.uid}`, 'info', undefined, rowIndex);
+          responseData = await updateExistingEntry(existingEntry.uid, entryData, rowIndex);
+          isUpdate = true;
+        }
+      } else {
+        // Create new entry
+        addLog(`Creating new entry`, 'info', undefined, rowIndex);
+        responseData = await createNewEntry(entryData, rowIndex);
       }
 
-      const responseData = await response.json();
       const entryUid = responseData.entry.uid;
-      addLog(`Entry created successfully with UID: ${entryUid}`, 'success', undefined, rowIndex);
+      const action = isUpdate ? 'updated' : 'created';
+      addLog(`Entry ${action} successfully with UID: ${entryUid}`, 'success', undefined, rowIndex);
 
       if (config.shouldPublish) {
         try {
           const publishResult = await publishEntry(entryUid);
           addLog(`Entry published successfully`, 'published', publishResult, rowIndex);
-          return { rowIndex, success: true, entryUid, published: true, publishResult };
+          return { rowIndex, success: true, entryUid, published: true, publishResult, updated: isUpdate };
         } catch (publishError: any) {
           addLog(`Failed to publish entry: ${publishError.message || publishError}`, 'error', publishError, rowIndex);
-          return { rowIndex, success: true, entryUid, published: false, error: publishError.message || publishError };
+          return { rowIndex, success: true, entryUid, published: false, error: publishError.message || publishError, updated: isUpdate };
         }
       }
 
-      return { rowIndex, success: true, entryUid };
+      return { rowIndex, success: true, entryUid, updated: isUpdate };
     } catch (error: any) {
       addLog(`Unexpected error: ${error.message || error}`, 'error', error, rowIndex);
       return { rowIndex, success: false, error: error.message || error };
     }
-  }, [config, fieldMapping, transformValue]);
+  }, [config, fieldMapping, transformValue, findExistingEntry, compareEntryData, updateExistingEntry, createNewEntry]);
 
   const startImport = useCallback(async () => {
     setIsImporting(true);
@@ -249,10 +367,13 @@ export const useImportOperations = (
     }
 
     const successCount = importResults.filter(r => r.success).length;
+    const createdCount = importResults.filter(r => r.success && !r.updated && !r.skipped).length;
+    const updatedCount = importResults.filter(r => r.updated).length;
+    const skippedCount = importResults.filter(r => r.skipped).length;
     const publishedCount = importResults.filter(r => r.published).length;
     const errorCount = importResults.filter(r => !r.success).length;
 
-    addLog(`Import completed: ${successCount} successful, ${publishedCount} published, ${errorCount} failed`, 
+    addLog(`Import completed: ${successCount} successful (${createdCount} created, ${updatedCount} updated, ${skippedCount} skipped), ${publishedCount} published, ${errorCount} failed`, 
            errorCount > 0 ? 'warning' : 'success');
 
     setIsImporting(false);

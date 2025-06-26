@@ -1,4 +1,3 @@
-
 export interface ContentstackConfig {
   apiKey: string;
   managementToken: string;
@@ -32,6 +31,8 @@ export interface ImportResult {
   error?: string;
   published?: boolean;
   publishResult?: any;
+  updated?: boolean;
+  skipped?: boolean;
 }
 
 export interface ContentstackField {
