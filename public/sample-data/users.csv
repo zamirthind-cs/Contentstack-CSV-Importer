@@ -1,0 +1,9 @@
+name,email,user_type,department,location,phone,status
+John Doe,john.doe@example.com,Admin,IT,New York,+1-555-0101,Active
+Jane Smith,jane.smith@example.com,Editor,Marketing,Los Angeles,+1-555-0102,Active
+Bob Johnson,bob.johnson@example.com,Viewer,Sales,Chicago,+1-555-0103,Inactive
+Alice Brown,alice.brown@example.com,Editor,Design,Seattle,+1-555-0104,Active
+Charlie Wilson,charlie.wilson@example.com,Admin,Operations,Miami,+1-555-0105,Active
+Diana Davis,diana.davis@example.com,Viewer,HR,Boston,+1-555-0106,Active
+Frank Miller,frank.miller@example.com,Editor,Content,Austin,+1-555-0107,Inactive
+Grace Lee,grace.lee@example.com,Admin,IT,San Francisco,+1-555-0108,Active
