@@ -98,12 +98,18 @@ Before running a full import, keep the following in mind to avoid common pitfall
 ---
 
 # How to Use the CSV Importer UI
-![Import Setup](/public/Import-Setup.png)
-Follow these steps to configure and execute your import successfully:
+### Sample Data Instructions
+
+Now that you have your app hosted or running locally, you can use the app.
+
+#### Setup Steps:
+Import `/public/sample-data/csv_model.json` as a content type into Contentstack or use a model you already have.
 
 ---
 
 ## 1. Enter Your Contentstack Credentials
+
+![Import Setup](/public/Import-Setup.png)
 
 - **API Key**: Found in your stack settings under "API Keys."
 - **Management Token**: Required to create or update entries. Make sure it has sufficient permissions.
@@ -119,6 +125,8 @@ Follow these steps to configure and execute your import successfully:
 ---
 
 ## 3. Upload Your Content Type Schema
+
+You can use the `csv_model.json` for testing.
 
 - Upload the **JSON schema** for the content type you’re importing into.
 - This file is typically exported from Contentstack:
@@ -136,7 +144,7 @@ Follow these steps to configure and execute your import successfully:
 
 ## 5. Upload CSV File
 ![CSV Upload](/public/CSV-Upload.png)
-Upload the CSV file that contains the data you want to import into Contentstack.
+Upload the CSV file that contains the data you want to import into Contentstack. You can use the  `public/sample-data/sample-data.csv`  to test.
 
 ### 📌 Best Practices for CSV Formatting
 
@@ -152,6 +160,10 @@ Upload the CSV file that contains the data you want to import into Contentstack.
   For user readability it is also easier to reorganize the columns to match the order they would appear in the fields of the content type.
 
 - 📎 **Supported format**: CSV with comma-separated values (`.csv` extension)
+
+#### Notes:
+- The content type includes a field with UID `published date`, but the corresponding column in the CSV is labeled `publication date`. Because of this mismatch, that field will be skipped during the mapping process. This is intentional.
+- When you run the app, the **"User Type"** select field (which is part of a Global Field) may appear empty. This is expected, as **complex field structures like Global Fields and Select fields are beyond the scope of this proof of concept.**
 
 ### What Happens Next?
 
